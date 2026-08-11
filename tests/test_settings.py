@@ -12,6 +12,7 @@ class TestSettings:
 
         assert config_path.exists()
         assert settings.get("character_name") == "Saber"
+        assert settings.get("whisper_model") == "small"
 
     def test_loads_existing_config_and_merges_defaults(self, tmp_path):
         config_path = tmp_path / "config.json"

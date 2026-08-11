@@ -19,9 +19,10 @@ class VoiceInput(QObject):
     listening_stopped = Signal()
     hands_free_toggled = Signal(bool)
 
-    def __init__(self, language: str = "pt"):
+    def __init__(self, language: str = "pt", model_size: str = "small"):
         super().__init__()
         self.language = language
+        self.model_size = model_size
         self.is_listening = False
         self._frames = []
         self._lock = threading.Lock()
@@ -45,8 +46,8 @@ class VoiceInput(QObject):
                 return self._model
             try:
                 from faster_whisper import WhisperModel
-                logging.info("Loading faster-whisper model (tiny)...")
-                self._model = WhisperModel("tiny", device="cpu", compute_type="int8")
+                logging.info(f"Loading faster-whisper model ({self.model_size})...")
+                self._model = WhisperModel(self.model_size, device="cpu", compute_type="int8")
                 logging.info("faster-whisper model ready.")
             except Exception as e:
                 logging.error(f"Failed to load faster-whisper model: {e}")
@@ -208,7 +209,16 @@ class VoiceInput(QObject):
             return
 
         try:
-            segments, _ = model.transcribe(audio, language=self.language)
+            segments, _ = model.transcribe(
+                audio,
+                language=self.language,
+                beam_size=5,
+                best_of=5,
+                temperature=0.0,
+                condition_on_previous_text=False,
+                vad_filter=True,
+                vad_parameters=dict(min_silence_duration_ms=300),
+            )
             text = " ".join(seg.text.strip() for seg in segments).strip()
             if text:
                 self.speech_recognized.emit(text)

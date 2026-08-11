@@ -49,7 +49,7 @@ class CompanionOrchestrator:
         # Initialize Character & Animation
         assets_path = self.settings.get("assets_path", DEFAULT_ASSETS_PATH)
         self.sprite_loader = SpriteLoader(assets_path)
-        self.animation_manager = AnimationManager(self.sprite_loader, default_fps=self.settings.get("fps", 12))
+        self.animation_manager = AnimationManager(self.sprite_loader)
         self.state_manager = CharacterStateManager(self.state_machine, self.animation_manager)
         self.behavior_manager = AutonomousBehaviorManager(self.state_manager)
 
@@ -71,7 +71,10 @@ class CompanionOrchestrator:
 
         # Initialize TTS & Voice Input
         self.tts = EdgeTTSProvider()
-        self.voice_input = VoiceInput(language=self.settings.get("language", "pt-BR").split("-")[0])
+        self.voice_input = VoiceInput(
+            language=self.settings.get("language", "pt-BR").split("-")[0],
+            model_size=self.settings.get("whisper_model", "small"),
+        )
         self.voice_input.listening_started.connect(lambda: self.state_manager.set_state("LISTENING", reason="Voice input started"))
         self.voice_input.listening_stopped.connect(lambda: self.state_manager.set_state("THINKING", reason="Processing voice input"))
         self.voice_input.transcription_failed.connect(self._on_voice_transcription_failed)

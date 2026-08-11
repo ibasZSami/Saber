@@ -132,6 +132,25 @@ class TestVoiceInputTranscription:
         assert received == ["olá mundo"]
         assert failed == []
 
+    def test_transcribe_uses_accuracy_decoding_params(self):
+        """Regression test: vad_filter + temperature=0 + condition_on_previous_text=False
+        were added to cut down on mis-heard words and hallucinated repeats."""
+        vi = VoiceInput()
+        fake_segment = MagicMock()
+        fake_segment.text = "oi"
+        fake_model = MagicMock()
+        fake_model.transcribe.return_value = ([fake_segment], None)
+        vi._model = fake_model
+
+        frames = [np.zeros((SAMPLE_RATE, 1), dtype=np.int16)]
+        vi._transcribe(frames)
+
+        _, kwargs = fake_model.transcribe.call_args
+        assert kwargs["vad_filter"] is True
+        assert kwargs["temperature"] == 0.0
+        assert kwargs["condition_on_previous_text"] is False
+        assert kwargs["beam_size"] >= 1
+
     def test_transcribe_emits_failure_when_no_frames(self):
         vi = VoiceInput()
         vi._model = MagicMock()
@@ -229,3 +248,15 @@ class TestModelWarmUp:
         assert first is None
         assert second is None
         mock_cls.assert_called_once()  # second call shouldn't retry a known-bad load
+
+    def test_default_model_size_is_small(self):
+        """Regression test: default used to be 'tiny', which mis-heard words often
+        enough that the user asked for a more accurate model."""
+        vi = VoiceInput()
+        assert vi.model_size == "small"
+
+    def test_custom_model_size_is_used_when_loading(self):
+        vi = VoiceInput(model_size="medium")
+        with patch("faster_whisper.WhisperModel") as mock_cls:
+            vi._ensure_model()
+        mock_cls.assert_called_once_with("medium", device="cpu", compute_type="int8")

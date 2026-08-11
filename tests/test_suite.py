@@ -22,8 +22,8 @@ class TestSaberCompanion(unittest.TestCase):
     def test_sprite_loader_and_animation(self):
         loader = SpriteLoader(ASSETS_DIR)
         anim_mgr = AnimationManager(loader)
-        self.assertIn("idle", anim_mgr.animations)
-        frame = anim_mgr.update()
+        self.assertIn("idle", anim_mgr.sprites)
+        frame = anim_mgr.get_current_frame()
         self.assertIsNotNone(frame)
 
     def test_state_machine(self):

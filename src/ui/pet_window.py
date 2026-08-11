@@ -1,6 +1,6 @@
 import sys
 from PySide6.QtWidgets import QWidget, QLabel, QVBoxLayout, QMenu
-from PySide6.QtCore import Qt, QTimer, QPoint
+from PySide6.QtCore import Qt, QPoint
 from PySide6.QtGui import QPixmap, QMouseEvent, QContextMenuEvent
 
 from src.character.animation_manager import AnimationManager
@@ -28,10 +28,10 @@ class PetWindow(QWidget):
         self.label.setAlignment(Qt.AlignCenter)
         self.layout.addWidget(self.label)
 
-        # Timer for animation update
-        self.timer = QTimer(self)
-        self.timer.timeout.connect(self._update_frame)
-        self.timer.start(1000 // max(1, self.animation_manager.default_fps))
+        # A static pose per state, swapped only when the state actually changes
+        # (no per-frame timer — see AnimationManager for why).
+        self.animation_manager.frame_changed.connect(self._set_pixmap)
+        self._set_pixmap(self.animation_manager.get_current_frame())
 
         # Position at bottom-right of primary screen
         from PySide6.QtWidgets import QApplication
@@ -46,8 +46,7 @@ class PetWindow(QWidget):
         self.setWindowFlags(flags)
         self.show()
 
-    def _update_frame(self):
-        pixmap = self.animation_manager.update()
+    def _set_pixmap(self, pixmap):
         if pixmap and not pixmap.isNull():
             # Scale pixmap smoothly so sprite is clearly visible
             scaled = pixmap.scaled(200, 200, Qt.KeepAspectRatio, Qt.SmoothTransformation)

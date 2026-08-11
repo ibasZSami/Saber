@@ -39,8 +39,7 @@ class CharacterStateManager:
 
     def _on_state_changed(self, old_state: str, new_state: str, reason: str = ""):
         anim_name = STATE_ANIM_MAP.get(new_state.upper(), "idle")
-        is_looping = new_state.upper() in ["IDLE", "WALK", "RUN", "SLEEP", "WORKING", "GAMING", "READ", "THINKING", "TALKING"]
-        self.animation_manager.play(anim_name, loop=is_looping)
+        self.animation_manager.play(anim_name)
 
     def set_state(self, state_name: str, reason: str = ""):
         self.state_machine.transition_to(state_name.upper(), reason=reason)

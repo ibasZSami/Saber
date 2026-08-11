@@ -21,7 +21,7 @@ class TestCharacterStateManager:
 
         sm.transition_to("TALKING")
 
-        anim_mgr.play.assert_called_with("talking", loop=True)
+        anim_mgr.play.assert_called_with("talking")
 
     def test_unknown_state_falls_back_to_idle_animation(self):
         sm = StateMachine("IDLE")
@@ -30,13 +30,22 @@ class TestCharacterStateManager:
 
         sm.transition_to("SOME_UNMAPPED_STATE")
 
-        anim_mgr.play.assert_called_with("idle", loop=False)
+        anim_mgr.play.assert_called_with("idle")
 
-    def test_non_looping_state_passes_loop_false(self):
+    def test_sleep_state_maps_to_sleep_animation(self):
         sm = StateMachine("IDLE")
         anim_mgr = MagicMock()
         CharacterStateManager(sm, anim_mgr)
 
-        sm.transition_to("HAPPY")
+        sm.transition_to("SLEEP")
 
-        anim_mgr.play.assert_called_with("happy", loop=False)
+        anim_mgr.play.assert_called_with("sleep")
+
+    def test_gaming_state_maps_to_game_animation(self):
+        sm = StateMachine("IDLE")
+        anim_mgr = MagicMock()
+        CharacterStateManager(sm, anim_mgr)
+
+        sm.transition_to("GAMING")
+
+        anim_mgr.play.assert_called_with("game")

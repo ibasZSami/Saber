@@ -1,6 +1,6 @@
 import sys
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QTabWidget, QFormLayout, QLineEdit, QComboBox, QCheckBox, QPushButton, QLabel, QSpinBox, QDoubleSpinBox
+    QWidget, QVBoxLayout, QTabWidget, QFormLayout, QLineEdit, QComboBox, QCheckBox, QPushButton, QLabel
 )
 from src.config.settings import Settings
 
@@ -22,14 +22,9 @@ class SettingsWindow(QWidget):
         self.always_on_top_chk.setChecked(self.settings.get("always_on_top", True))
         self.click_through_chk = QCheckBox("Ativar Modo Click-Through (Não Bloquear Cliques)")
         self.click_through_chk.setChecked(self.settings.get("click_through", False))
-        self.fps_input = QSpinBox()
-        self.fps_input.setRange(1, 30)
-        self.fps_input.setValue(self.settings.get("fps", 6))
-        self.fps_input.setToolTip("Sprites têm poucos frames por animação; valores altos deixam o personagem tremido. Requer reiniciar o app.")
         g_layout.addRow("Nome da Personagem:", self.name_input)
         g_layout.addRow(self.always_on_top_chk)
         g_layout.addRow(self.click_through_chk)
-        g_layout.addRow("Velocidade da Animação (FPS):", self.fps_input)
         tabs.addTab(general_tab, "Geral")
 
         # Tab 2: IA & Provedor
@@ -48,7 +43,23 @@ class SettingsWindow(QWidget):
         ai_layout.addRow("Modelo:", self.ai_model_input)
         tabs.addTab(ai_tab, "IA")
 
-        # Tab 3: Visão de Tela
+        # Tab 3: Voz
+        voice_tab = QWidget()
+        voice_layout = QFormLayout(voice_tab)
+        self.mic_chk = QCheckBox("Ativar Microfone (Push-to-Talk F8 / Mãos-Livres +)")
+        self.mic_chk.setChecked(self.settings.get("microphone_enabled", False))
+        self.whisper_model_combo = QComboBox()
+        self.whisper_model_combo.addItems(["tiny", "base", "small", "medium"])
+        self.whisper_model_combo.setCurrentText(self.settings.get("whisper_model", "small"))
+        self.whisper_model_combo.setToolTip(
+            "Modelos maiores reconhecem a fala com mais precisão, mas demoram mais\n"
+            "e baixam mais dados na primeira vez. Requer reiniciar o app."
+        )
+        voice_layout.addRow(self.mic_chk)
+        voice_layout.addRow("Precisão do Reconhecimento de Voz:", self.whisper_model_combo)
+        tabs.addTab(voice_tab, "Voz")
+
+        # Tab 4: Visão de Tela
         vision_tab = QWidget()
         v_layout = QFormLayout(vision_tab)
         self.vision_chk = QCheckBox("Ativar Visão de Tela (Screen Vision)")
@@ -69,10 +80,11 @@ class SettingsWindow(QWidget):
         self.settings.set("character_name", self.name_input.text().strip())
         self.settings.set("always_on_top", self.always_on_top_chk.isChecked())
         self.settings.set("click_through", self.click_through_chk.isChecked())
-        self.settings.set("fps", self.fps_input.value())
         self.settings.set("ai_provider", self.ai_combo.currentText())
         self.settings.set("api_key", self.api_key_input.text().strip())
         self.settings.set("ai_model", self.ai_model_input.text().strip())
+        self.settings.set("microphone_enabled", self.mic_chk.isChecked())
+        self.settings.set("whisper_model", self.whisper_model_combo.currentText())
         self.settings.set("screen_monitoring_enabled", self.vision_chk.isChecked())
         self.settings.set("private_mode", self.private_mode_chk.isChecked())
         self.close()
