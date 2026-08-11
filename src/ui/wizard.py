@@ -63,7 +63,7 @@ class SetupWizard(QWidget):
         self.layout = QVBoxLayout(self)
 
         # Header
-        self.title_lbl = QLabel("✨ Bem-vindo ao Shimeji AI Companion (Lumi) ✨")
+        self.title_lbl = QLabel("✨ Bem-vindo ao Shimeji AI Companion (Saber) ✨")
         self.title_lbl.setStyleSheet("font-size: 16px; font-weight: bold; color: #d1b3ff; margin-bottom: 10px;")
         self.title_lbl.setAlignment(Qt.AlignCenter)
         self.layout.addWidget(self.title_lbl)
@@ -74,7 +74,7 @@ class SetupWizard(QWidget):
         # Page 1: Character Name
         self.page1 = QGroupBox("Etapa 1: Nome da Personagem")
         p1_layout = QFormLayout(self.page1)
-        self.name_input = QLineEdit(self.settings.get("character_name", "Lumi"))
+        self.name_input = QLineEdit(self.settings.get("character_name", "Saber"))
         p1_layout.addRow("Nome:", self.name_input)
         self.stacked_widget.addWidget(self.page1)
 

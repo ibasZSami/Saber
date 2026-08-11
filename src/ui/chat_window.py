@@ -42,7 +42,7 @@ QPushButton:hover {
 class ChatWindow(QWidget):
     message_sent = Signal(str)
 
-    def __init__(self, character_name: str = "Lumi"):
+    def __init__(self, character_name: str = "Saber"):
         super().__init__()
         self.character_name = character_name
         self.setWindowTitle(f"Conversar com {self.character_name}")

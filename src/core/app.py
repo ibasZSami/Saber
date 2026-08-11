@@ -42,7 +42,7 @@ def _start_main(app, settings):
     pet_window.activateWindow()
 
     # Chat Window
-    chat_window = ChatWindow(settings.get("character_name", "Lumi"))
+    chat_window = ChatWindow(settings.get("character_name", "Saber"))
     chat_window.show()
     chat_window.raise_()
     chat_window.activateWindow()
@@ -52,13 +52,51 @@ def _start_main(app, settings):
 
     # Connect signals
     pet_window.on_double_click = lambda: (chat_window.show(), chat_window.raise_(), chat_window.activateWindow())
-    chat_window.message_sent.connect(lambda msg: orchestrator.handle_user_message(msg, on_response=lambda res: chat_window.append_message(settings.get("character_name", "Lumi"), res)))
+    chat_window.message_sent.connect(lambda msg: orchestrator.handle_user_message(msg, on_response=lambda res: chat_window.append_message(settings.get("character_name", "Saber"), res)))
+
+    # Voice Input (Push-to-Talk F8)
+    def _on_voice_transcribed(text):
+        if not text:
+            return
+        chat_window.append_message("Você (voz)", text)
+        orchestrator.handle_user_message(text, on_response=lambda res: chat_window.append_message(settings.get("character_name", "Saber"), res))
+
+    orchestrator.voice_input.speech_recognized.connect(_on_voice_transcribed)
+    orchestrator.voice_input.transcription_failed.connect(
+        lambda reason: chat_window.append_message(settings.get("character_name", "Saber"), f"🎤 {reason}")
+    )
+
+    orchestrator.voice_input.hands_free_toggled.connect(
+        lambda enabled: chat_window.append_message(
+            settings.get("character_name", "Saber"),
+            "🎤 Modo mãos-livres ativado — pode falar a qualquer momento." if enabled
+            else "🎤 Modo mãos-livres desativado."
+        )
+    )
+
+    if settings.get("microphone_enabled", False):
+        try:
+            import keyboard
+            keyboard.on_press_key("f8", lambda e: orchestrator.voice_input.start_listening())
+            keyboard.on_release_key("f8", lambda e: orchestrator.voice_input.stop_listening())
+            keyboard.add_hotkey("+", lambda: orchestrator.voice_input.set_hands_free(not orchestrator.voice_input.hands_free_enabled))
+            logging.info("Push-to-Talk (F8) e modo mãos-livres (+) registrados.")
+        except Exception as e:
+            logging.warning(f"Não foi possível registrar os atalhos globais de voz: {e}")
+
+    # Tecla "-": liga/desliga a Visão de Tela permanentemente (independe do microfone)
+    try:
+        import keyboard
+        keyboard.add_hotkey("-", lambda: orchestrator.set_full_vision(not settings.get("screen_monitoring_enabled", False)))
+        logging.info("Atalho global '-' (Visão de Tela) registrado.")
+    except Exception as e:
+        logging.warning(f"Não foi possível registrar o atalho global '-': {e}")
 
     # System Tray
     tray = TrayIcon(
         on_chat=lambda: (chat_window.show(), chat_window.raise_(), chat_window.activateWindow()),
         on_settings=lambda: (settings_window.show(), settings_window.raise_(), settings_window.activateWindow()),
-        on_vision_toggle=lambda: orchestrator.set_vision_monitoring(not settings.get("screen_monitoring_enabled", False)),
+        on_vision_toggle=lambda: orchestrator.set_full_vision(not settings.get("screen_monitoring_enabled", False)),
         on_exit=lambda: app.quit()
     )
 

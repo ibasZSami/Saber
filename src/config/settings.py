@@ -14,10 +14,15 @@ ENV_KEY_BY_PROVIDER = {
     "openai": "OPENAI_API_KEY",
 }
 
+# Ship-with-repo sprite copy, so a fresh clone works without depending on an
+# external personal folder (e.g. a user's Downloads directory) that may move or be deleted.
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+DEFAULT_ASSETS_PATH = str(PROJECT_ROOT / "extracted_assets" / "shimeji_animations_transparent")
+
 DEFAULT_CONFIG = {
-    "character_name": "Lumi",
+    "character_name": "Saber",
     "ai_provider": "nvidia",
-    "ai_model": "meta/llama-3.1-70b-instruct",
+    "ai_model": "meta/llama-3.2-11b-vision-instruct",
     "api_key": "",
     "voice_provider": "edge_tts",
     "voice": "pt-BR-FranciscaNeural",
@@ -30,10 +35,10 @@ DEFAULT_CONFIG = {
     "click_through": False,
     "always_on_top": True,
     "scale": 1.0,
-    "fps": 12,
+    "fps": 6,
     "language": "pt-BR",
     "private_mode": True,
-    "assets_path": r"C:\Users\ribas\Downloads\shimeji_animations_transparent",
+    "assets_path": DEFAULT_ASSETS_PATH,
     "allowlist": {
         "chrome": r"C:\Program Files\Google\Chrome\Application\chrome.exe",
         "discord": r"C:\Users\ribas\AppData\Local\Discord\Update.exe --processStart Discord.exe",

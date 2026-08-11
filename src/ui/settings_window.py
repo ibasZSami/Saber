@@ -17,14 +17,19 @@ class SettingsWindow(QWidget):
         # Tab 1: Geral
         general_tab = QWidget()
         g_layout = QFormLayout(general_tab)
-        self.name_input = QLineEdit(self.settings.get("character_name", "Lumi"))
+        self.name_input = QLineEdit(self.settings.get("character_name", "Saber"))
         self.always_on_top_chk = QCheckBox("Manter Sempre no Topo")
         self.always_on_top_chk.setChecked(self.settings.get("always_on_top", True))
         self.click_through_chk = QCheckBox("Ativar Modo Click-Through (Não Bloquear Cliques)")
         self.click_through_chk.setChecked(self.settings.get("click_through", False))
+        self.fps_input = QSpinBox()
+        self.fps_input.setRange(1, 30)
+        self.fps_input.setValue(self.settings.get("fps", 6))
+        self.fps_input.setToolTip("Sprites têm poucos frames por animação; valores altos deixam o personagem tremido. Requer reiniciar o app.")
         g_layout.addRow("Nome da Personagem:", self.name_input)
         g_layout.addRow(self.always_on_top_chk)
         g_layout.addRow(self.click_through_chk)
+        g_layout.addRow("Velocidade da Animação (FPS):", self.fps_input)
         tabs.addTab(general_tab, "Geral")
 
         # Tab 2: IA & Provedor
@@ -64,6 +69,7 @@ class SettingsWindow(QWidget):
         self.settings.set("character_name", self.name_input.text().strip())
         self.settings.set("always_on_top", self.always_on_top_chk.isChecked())
         self.settings.set("click_through", self.click_through_chk.isChecked())
+        self.settings.set("fps", self.fps_input.value())
         self.settings.set("ai_provider", self.ai_combo.currentText())
         self.settings.set("api_key", self.api_key_input.text().strip())
         self.settings.set("ai_model", self.ai_model_input.text().strip())

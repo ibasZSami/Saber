@@ -15,9 +15,10 @@ class ScreenTranslationManager:
 
         extracted_text = ocr_res.get("text", "")
         if not extracted_text:
+            message = ocr_res.get("error") or "Não consegui ler nenhum texto legível na tela no momento."
             return {
                 "original_text": "",
-                "translated_text": "Não consegui ler nenhum texto legível na tela no momento.",
+                "translated_text": message,
                 "success": False
             }
 

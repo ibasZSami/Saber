@@ -3,7 +3,6 @@ from typing import Dict, Any, List
 
 class ContextManager:
     def __init__(self):
-        self.screen_vision_enabled = False
         self.screen_context = {}
         self.app_context = {}
 
@@ -13,15 +12,15 @@ class ContextManager:
     def set_app_context(self, context: dict):
         self.app_context = context
 
-    def build_prompt_context(self, memories: dict, user_text: str) -> str:
+    def build_prompt_context(self, memories: dict, user_text: str, vision_enabled: bool = False) -> str:
         ctx_lines = []
 
         if self.app_context:
             ctx_lines.append(f"[Janela Ativa: {self.app_context.get('window_title', 'Desconhecida')} | Categoria: {self.app_context.get('category', 'geral')}]")
 
-        if self.screen_vision_enabled and self.screen_context:
-            ctx_lines.append(f"[Visão de Tela: {self.screen_context}]")
-        elif not self.screen_vision_enabled:
+        if vision_enabled:
+            ctx_lines.append("[Visão de Tela: Ativada — uma captura de tela atual está anexada a esta mensagem]")
+        else:
             ctx_lines.append("[Visão de Tela: Desativada pelo usuário]")
 
         if memories:
