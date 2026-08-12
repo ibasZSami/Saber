@@ -392,10 +392,18 @@ class CompanionOrchestrator:
                 self.event_bus.emit(AI_FINISHED)
                 parsed = parse_ai_response(raw_ai)
 
-                speech = parsed.get("speech", "")
+                speech = parsed.get("speech", "").strip()
                 anim_name = parsed.get("animation", "TALKING")
                 action = parsed.get("action", "Nenhuma")
                 action_param = parsed.get("action_param", "")
+
+                # This is a real question the user asked (unlike the spontaneous-talk
+                # path, where staying silent is intentional) — an empty reply here means
+                # the model/parsing failed, not that there's nothing to say, so never
+                # leave the user with silence after actually asking something.
+                if not speech:
+                    speech = "Desculpa, não consegui pensar em uma resposta agora. Pode repetir?"
+                    anim_name = "CONFUSED"
 
                 # Perform action if requested
                 self._execute_action(action, action_param)
@@ -405,14 +413,13 @@ class CompanionOrchestrator:
 
                 # UI Update & TTS Execution
                 self.state_manager.set_state(anim_name, reason="AI Response")
-                if speech:
-                    tts_kwargs = {
-                        "voice": self.settings.get("voice", DEFAULT_VOICE),
-                        "volume": self.settings.get("voice_volume", 1.0),
-                        "speed": self.settings.get("voice_speed", 1.0),
-                        "pitch": self.settings.get("voice_pitch", "+0Hz"),
-                    }
-                    threading.Thread(target=self.tts.speak, args=(speech,), kwargs=tts_kwargs, daemon=True).start()
+                tts_kwargs = {
+                    "voice": self.settings.get("voice", DEFAULT_VOICE),
+                    "volume": self.settings.get("voice_volume", 1.0),
+                    "speed": self.settings.get("voice_speed", 1.0),
+                    "pitch": self.settings.get("voice_pitch", "+0Hz"),
+                }
+                threading.Thread(target=self.tts.speak, args=(speech,), kwargs=tts_kwargs, daemon=True).start()
 
                 if on_response:
                     on_response(speech)

@@ -40,6 +40,13 @@ class TestParseAIResponse:
         result = parse_ai_response(raw)
         assert result["speech"] == "Oi! tudo bem?"
 
+    def test_does_not_silence_a_reply_entirely_wrapped_in_parens(self):
+        # A real answer that happens to be entirely inside parens must still be
+        # spoken — stripping it down to nothing would silently drop a real reply.
+        raw = '{"speech": "(Sim, são 5 horas agora)", "animation": "TALKING"}'
+        result = parse_ai_response(raw)
+        assert result["speech"] == "(Sim, são 5 horas agora)"
+
     def test_salvages_speech_field_from_broken_json_instead_of_raw_dump(self):
         # Missing closing brace for the outer object — json.loads fails,
         # but the speech field itself is intact and should be recovered

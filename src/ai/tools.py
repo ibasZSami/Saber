@@ -46,9 +46,14 @@ _NARRATION_RE = re.compile(r"\*[^*]*\*|\([^)]*\)|\[[^\]]*\]")
 
 
 def _sanitize_speech(text: str) -> str:
-    text = _NARRATION_RE.sub(" ", text)
-    text = text.replace("*", "")
-    return re.sub(r"\s+", " ", text).strip()
+    stripped = re.sub(r"\s+", " ", _NARRATION_RE.sub(" ", text).replace("*", "")).strip()
+    if stripped or not text.strip():
+        return stripped
+    # The whole reply was wrapped in narration markers (e.g. the model answered
+    # entirely inside parentheses) — stripping it would silence a real answer,
+    # so fall back to the original text (minus literal asterisks) instead of
+    # going quiet on a question the user actually asked.
+    return re.sub(r"\s+", " ", text.replace("*", "")).strip()
 
 
 def _unescape_json_string(s: str) -> str:
