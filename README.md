@@ -1,6 +1,6 @@
-# 🔮 Shimeji AI Companion (Silva)
+# 🔮 Silva
 
-**Shimeji AI Companion (Silva)** é uma evolução do conceito tradicional de Shimeji para um verdadeiro **companheiro virtual de desktop com IA**, visão de tela inteligente, voz, memória local, animações em pixel art e capacidade controlada de interagir com o sistema operacional.
+**Silva** é uma evolução do conceito tradicional de Shimeji para um verdadeiro **companheiro virtual de desktop com IA**, visão de tela inteligente, voz, memória local, animações em pixel art e capacidade controlada de interagir com o sistema operacional.
 
 ---
 

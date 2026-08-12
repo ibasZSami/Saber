@@ -21,7 +21,7 @@ class SettingsWindow(QWidget):
     def __init__(self, settings: Settings):
         super().__init__()
         self.settings = settings
-        self.setWindowTitle("Configurações - Shimeji AI Companion")
+        self.setWindowTitle("Configurações - Silva")
         self.resize(500, 450)
 
         layout = QVBoxLayout(self)

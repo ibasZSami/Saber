@@ -1,6 +1,6 @@
 @echo off
-title Shimeji AI Companion (Silva)
-echo Iniciando Shimeji AI Companion...
+title Silva
+echo Iniciando Silva...
 call venv\Scripts\activate.bat
 python main.py
 pause

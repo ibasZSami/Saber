@@ -56,14 +56,14 @@ class SetupWizard(QWidget):
     def __init__(self, settings: Settings):
         super().__init__()
         self.settings = settings
-        self.setWindowTitle("Shimeji AI Companion - Setup Wizard")
+        self.setWindowTitle("Silva - Setup Wizard")
         self.resize(550, 420)
         self.setStyleSheet(DARK_STYLE)
 
         self.layout = QVBoxLayout(self)
 
         # Header
-        self.title_lbl = QLabel("✨ Bem-vindo ao Shimeji AI Companion (Silva) ✨")
+        self.title_lbl = QLabel("✨ Bem-vindo ao Silva ✨")
         self.title_lbl.setStyleSheet("font-size: 16px; font-weight: bold; color: #d1b3ff; margin-bottom: 10px;")
         self.title_lbl.setAlignment(Qt.AlignCenter)
         self.layout.addWidget(self.title_lbl)
