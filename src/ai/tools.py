@@ -68,7 +68,11 @@ def parse_ai_response(response_text: str) -> Dict[str, Any]:
         if start != -1 and end != -1:
             json_str = response_text[start:end+1]
             parsed = json.loads(json_str)
-            parsed["speech"] = _sanitize_speech(str(parsed.get("speech", "")))
+            # `.get("speech", "")`'s default only kicks in when the key is absent —
+            # a JSON `null` (valid, and something a small model can produce) comes
+            # through as None, and str(None) is the non-empty string "None", which
+            # would then get spoken/shown as the literal word "None".
+            parsed["speech"] = _sanitize_speech(str(parsed.get("speech") or ""))
             return parsed
     except Exception as e:
         logging.warning(f"Failed to parse AI JSON response: {e}")

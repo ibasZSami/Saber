@@ -6,6 +6,14 @@ from PySide6.QtCore import QObject, Signal
 SAMPLE_RATE = 16000
 MIN_AUDIO_SECONDS = 0.3
 
+# faster-whisper/CTranslate2 model objects aren't documented as safe for
+# concurrent inference from multiple threads. VoiceInput and SystemAudioListener
+# can share one WhisperModel instance (system_audio.py's model_provider), and
+# both transcribe on their own background threads (e.g. the user talks while
+# game audio is also being captured) — this serializes every transcribe() call
+# across both, regardless of which model instance is in play.
+TRANSCRIBE_LOCK = threading.Lock()
+
 # Simple energy-based voice activity detection for hands-free mode.
 SILENCE_RMS_THRESHOLD = 500      # int16 RMS energy below this = silence
 SILENCE_DURATION_S = 0.8         # how long silence must last before an utterance is considered done
@@ -209,16 +217,22 @@ class VoiceInput(QObject):
             return
 
         try:
-            segments, _ = model.transcribe(
-                audio,
-                language=self.language,
-                beam_size=5,
-                best_of=5,
-                temperature=0.0,
-                condition_on_previous_text=False,
-                vad_filter=True,
-                vad_parameters=dict(min_silence_duration_ms=300),
-            )
+            # segments is a lazy generator — faster-whisper does the actual decoding
+            # while it's iterated, not during the transcribe() call itself, so the
+            # lock has to cover list(segments) too or two threads sharing this model
+            # could still decode concurrently.
+            with TRANSCRIBE_LOCK:
+                segments, _ = model.transcribe(
+                    audio,
+                    language=self.language,
+                    beam_size=5,
+                    best_of=5,
+                    temperature=0.0,
+                    condition_on_previous_text=False,
+                    vad_filter=True,
+                    vad_parameters=dict(min_silence_duration_ms=300),
+                )
+                segments = list(segments)
             text = " ".join(seg.text.strip() for seg in segments).strip()
             if text:
                 self.speech_recognized.emit(text)

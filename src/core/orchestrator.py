@@ -1,7 +1,7 @@
 import logging
 import threading
 import time
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import QTimer, QMetaObject, Qt, Q_ARG
 
 from src.config.settings import Settings, DEFAULT_ASSETS_PATH
 from src.core.event_bus import (
@@ -204,12 +204,17 @@ class CompanionOrchestrator:
         self.state_manager.set_state("CONFUSED", reason=f"Voice input failed: {reason}")
 
     def set_vision_monitoring(self, enabled: bool):
+        # Callers include voice/text commands (handled on a worker thread) and
+        # the global "-" hotkey (handled on the `keyboard` package's own listener
+        # thread) — QTimer.start()/.stop() must run on the thread that owns the
+        # timer (the main/Qt thread), so this is dispatched via invokeMethod
+        # instead of called directly, which would be unsafe from those threads.
         self.settings.set("screen_monitoring_enabled", enabled)
         if enabled:
-            if not self.vision_timer.isActive():
-                self.vision_timer.start(int(self.settings.get("screen_interval_seconds", 2.0) * 1000))
+            interval_ms = int(self.settings.get("screen_interval_seconds", 2.0) * 1000)
+            QMetaObject.invokeMethod(self.vision_timer, "start", Qt.AutoConnection, Q_ARG(int, interval_ms))
         else:
-            self.vision_timer.stop()
+            QMetaObject.invokeMethod(self.vision_timer, "stop", Qt.AutoConnection)
 
     def set_full_vision(self, enabled: bool):
         """Turns the whole screen-vision pipeline on/off: the periodic context

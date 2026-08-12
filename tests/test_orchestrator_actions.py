@@ -1,6 +1,8 @@
 import time
 from unittest.mock import MagicMock
 
+from PySide6.QtCore import QTimer
+
 from src.core.orchestrator import CompanionOrchestrator, SPONTANEOUS_TALK_PROMPT
 from src.core.event_bus import EventBus
 
@@ -169,8 +171,12 @@ def _bare_orchestrator_with_full_vision_deps(**settings_overrides):
     defaults = {"screen_monitoring_enabled": False, "private_mode": True, "screen_interval_seconds": 2.0}
     defaults.update(settings_overrides)
     orch.settings = FakeSettings(**defaults)
-    orch.vision_timer = MagicMock()
-    orch.vision_timer.isActive.return_value = defaults["screen_monitoring_enabled"]
+    # A real QTimer, not a MagicMock: set_vision_monitoring dispatches start()/stop()
+    # through QMetaObject.invokeMethod (needed so it's safe to call from a worker
+    # thread or the `keyboard` hotkey thread), which requires a real QObject.
+    orch.vision_timer = QTimer()
+    if defaults["screen_monitoring_enabled"]:
+        orch.vision_timer.start(int(defaults["screen_interval_seconds"] * 1000))
     return orch
 
 
@@ -180,19 +186,19 @@ class TestSetFullVision:
         orch.set_full_vision(True)
         assert orch.settings.get("private_mode") is False
         assert orch.settings.get("screen_monitoring_enabled") is True
-        orch.vision_timer.start.assert_called_once()
+        assert orch.vision_timer.isActive()
 
     def test_disabling_restores_private_mode_and_stops_timer(self):
         orch = _bare_orchestrator_with_full_vision_deps(screen_monitoring_enabled=True, private_mode=False)
         orch.set_full_vision(False)
         assert orch.settings.get("private_mode") is True
         assert orch.settings.get("screen_monitoring_enabled") is False
-        orch.vision_timer.stop.assert_called_once()
+        assert not orch.vision_timer.isActive()
 
-    def test_enabling_when_timer_already_active_does_not_restart(self):
+    def test_enabling_when_timer_already_active_keeps_it_active(self):
         orch = _bare_orchestrator_with_full_vision_deps(screen_monitoring_enabled=True)
         orch.set_full_vision(True)
-        orch.vision_timer.start.assert_not_called()
+        assert orch.vision_timer.isActive()
 
 
 class TestMaybeActivateVisionCommand:
@@ -213,7 +219,7 @@ class TestMaybeActivateVisionCommand:
         orch = _bare_orchestrator_with_full_vision_deps()
         orch._maybe_activate_vision_command("oi, tudo bem?")
         assert orch.settings.get("screen_monitoring_enabled") is False
-        orch.vision_timer.start.assert_not_called()
+        assert not orch.vision_timer.isActive()
 
     def test_phrase_is_case_insensitive(self):
         orch = _bare_orchestrator_with_full_vision_deps()

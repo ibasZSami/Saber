@@ -9,6 +9,7 @@ from src.voice.input import (
     MIN_AUDIO_SECONDS,
     SILENCE_DURATION_S,
     MAX_UTTERANCE_SECONDS,
+    TRANSCRIBE_LOCK,
 )
 
 # soundcard hands back normalized float32 samples (roughly [-1, 1]), unlike the
@@ -148,6 +149,11 @@ class SystemAudioListener(QObject):
             except Exception as e:
                 logging.error(f"System audio loopback error: {e}")
                 self.transcription_failed.emit("Erro ao capturar o áudio do sistema.")
+                # Without this, self.enabled stays True after the capture thread has
+                # actually died (device disconnected, driver error, etc.) — set_enabled(True)
+                # would then no-op on its "already enabled" check and never restart it.
+                self.enabled = False
+                self.listening_toggled.emit(False)
             finally:
                 logging.info("System audio listening disabled")
 
@@ -189,16 +195,21 @@ class SystemAudioListener(QObject):
             return
 
         try:
-            segments, _ = model.transcribe(
-                audio,
-                language=self.language,
-                beam_size=5,
-                best_of=5,
-                temperature=0.0,
-                condition_on_previous_text=False,
-                vad_filter=True,
-                vad_parameters=dict(min_silence_duration_ms=300),
-            )
+            # See input.py's TRANSCRIBE_LOCK: this can share a WhisperModel instance
+            # with VoiceInput (model_provider), and segments is a lazy generator, so
+            # the lock has to wrap list(segments) too, not just the transcribe() call.
+            with TRANSCRIBE_LOCK:
+                segments, _ = model.transcribe(
+                    audio,
+                    language=self.language,
+                    beam_size=5,
+                    best_of=5,
+                    temperature=0.0,
+                    condition_on_previous_text=False,
+                    vad_filter=True,
+                    vad_parameters=dict(min_silence_duration_ms=300),
+                )
+                segments = list(segments)
             text = " ".join(
                 seg.text.strip() for seg in segments if getattr(seg, "no_speech_prob", 0) < MAX_NO_SPEECH_PROB
             ).strip()

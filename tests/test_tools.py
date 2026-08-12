@@ -8,6 +8,11 @@ class TestParseAIResponse:
         assert result["speech"] == "oi"
         assert result["animation"] == "HAPPY"
 
+    def test_null_speech_does_not_become_the_word_none(self):
+        raw = '{"speech": null, "animation": "IDLE", "action": "Nenhuma", "action_param": ""}'
+        result = parse_ai_response(raw)
+        assert result["speech"] == ""
+
     def test_extracts_json_surrounded_by_extra_text(self):
         raw = 'Aqui está: {"speech": "oi", "animation": "IDLE"} obrigado!'
         result = parse_ai_response(raw)

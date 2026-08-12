@@ -91,10 +91,18 @@ def _start_main(app, settings):
         except Exception as e:
             logging.warning(f"Não foi possível registrar os atalhos globais de voz: {e}")
 
-    # Tecla "-": liga/desliga a Visão de Tela permanentemente (independe do microfone)
+    # Tecla "-": liga/desliga a Visão de Tela permanentemente (independe do microfone).
+    # "keyboard" trata "-" e "Ctrl+-" como atalhos independentes — sem esse guard,
+    # apertar Ctrl+- dispara os dois ao mesmo tempo (visão E áudio do sistema).
+    def _toggle_vision_unless_ctrl_held():
+        import keyboard
+        if keyboard.is_pressed("ctrl"):
+            return
+        orchestrator.set_full_vision(not settings.get("screen_monitoring_enabled", False))
+
     try:
         import keyboard
-        keyboard.add_hotkey("-", lambda: orchestrator.set_full_vision(not settings.get("screen_monitoring_enabled", False)))
+        keyboard.add_hotkey("-", _toggle_vision_unless_ctrl_held)
         logging.info("Atalho global '-' (Visão de Tela) registrado.")
     except Exception as e:
         logging.warning(f"Não foi possível registrar o atalho global '-': {e}")
