@@ -5,6 +5,7 @@ from PySide6.QtCore import Qt
 
 from src.config.settings import Settings
 from src.core.orchestrator import CompanionOrchestrator
+from src.core.event_bus import SPONTANEOUS_SPEECH
 from src.ui.pet_window import PetWindow
 from src.ui.chat_window import ChatWindow
 from src.ui.settings_window import SettingsWindow
@@ -36,13 +37,19 @@ def _start_main(app, settings):
     orchestrator = CompanionOrchestrator(settings)
 
     # Pet Window
-    pet_window = PetWindow(orchestrator.animation_manager, orchestrator.state_manager, settings.get("click_through", False))
+    pet_window = PetWindow(
+        orchestrator.animation_manager,
+        orchestrator.state_manager,
+        settings.get("click_through", False),
+        window_margin_x=settings.get("window_margin_x", 40),
+        window_margin_y=settings.get("window_margin_y", 40),
+    )
     pet_window.show()
     pet_window.raise_()
     pet_window.activateWindow()
 
     # Chat Window
-    chat_window = ChatWindow(settings.get("character_name", "Saber"))
+    chat_window = ChatWindow(settings.get("character_name", "Silva"))
     chat_window.show()
     chat_window.raise_()
     chat_window.activateWindow()
@@ -52,23 +59,23 @@ def _start_main(app, settings):
 
     # Connect signals
     pet_window.on_double_click = lambda: (chat_window.show(), chat_window.raise_(), chat_window.activateWindow())
-    chat_window.message_sent.connect(lambda msg: orchestrator.handle_user_message(msg, on_response=lambda res: chat_window.append_message(settings.get("character_name", "Saber"), res)))
+    chat_window.message_sent.connect(lambda msg: orchestrator.handle_user_message(msg, on_response=lambda res: chat_window.append_message(settings.get("character_name", "Silva"), res)))
 
     # Voice Input (Push-to-Talk F8)
     def _on_voice_transcribed(text):
         if not text:
             return
         chat_window.append_message("Você (voz)", text)
-        orchestrator.handle_user_message(text, on_response=lambda res: chat_window.append_message(settings.get("character_name", "Saber"), res))
+        orchestrator.handle_user_message(text, on_response=lambda res: chat_window.append_message(settings.get("character_name", "Silva"), res))
 
     orchestrator.voice_input.speech_recognized.connect(_on_voice_transcribed)
     orchestrator.voice_input.transcription_failed.connect(
-        lambda reason: chat_window.append_message(settings.get("character_name", "Saber"), f"🎤 {reason}")
+        lambda reason: chat_window.append_message(settings.get("character_name", "Silva"), f"🎤 {reason}")
     )
 
     orchestrator.voice_input.hands_free_toggled.connect(
         lambda enabled: chat_window.append_message(
-            settings.get("character_name", "Saber"),
+            settings.get("character_name", "Silva"),
             "🎤 Modo mãos-livres ativado — pode falar a qualquer momento." if enabled
             else "🎤 Modo mãos-livres desativado."
         )
@@ -91,6 +98,44 @@ def _start_main(app, settings):
         logging.info("Atalho global '-' (Visão de Tela) registrado.")
     except Exception as e:
         logging.warning(f"Não foi possível registrar o atalho global '-': {e}")
+
+    # Áudio do sistema (som do jogo/PC): "está ouvindo o som do jogo/pc" ou Ctrl+-
+    def _on_system_audio_transcribed(text):
+        if not text:
+            return
+        chat_window.append_message("🔊 Som do PC", text)
+        orchestrator.handle_user_message(
+            f"[Áudio do jogo/PC]: {text}",
+            on_response=lambda res: chat_window.append_message(settings.get("character_name", "Silva"), res)
+        )
+
+    orchestrator.system_audio_listener.audio_transcribed.connect(_on_system_audio_transcribed)
+    orchestrator.system_audio_listener.listening_toggled.connect(
+        lambda enabled: chat_window.append_message(
+            settings.get("character_name", "Silva"),
+            "🔊 Ouvindo o som do jogo/PC." if enabled
+            else "🔊 Parei de ouvir o som do jogo/PC."
+        )
+    )
+    orchestrator.system_audio_listener.transcription_failed.connect(
+        lambda reason: chat_window.append_message(settings.get("character_name", "Silva"), f"🔊 {reason}")
+    )
+
+    # Fala espontânea ("como numa chamada"): "pare de falar aleatoriamente" / "ativar falar aleatoriamente"
+    orchestrator.event_bus.subscribe(
+        SPONTANEOUS_SPEECH,
+        lambda speech: chat_window.append_message(settings.get("character_name", "Silva"), speech)
+    )
+
+    try:
+        import keyboard
+        keyboard.add_hotkey(
+            "ctrl+-",
+            lambda: orchestrator.system_audio_listener.set_enabled(not orchestrator.system_audio_listener.enabled)
+        )
+        logging.info("Atalho global 'Ctrl+-' (Ouvir áudio do PC) registrado.")
+    except Exception as e:
+        logging.warning(f"Não foi possível registrar o atalho global 'Ctrl+-': {e}")
 
     # System Tray
     tray = TrayIcon(

@@ -17,24 +17,28 @@ ENV_KEY_BY_PROVIDER = {
 # Ship-with-repo sprite copy, so a fresh clone works without depending on an
 # external personal folder (e.g. a user's Downloads directory) that may move or be deleted.
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
-DEFAULT_ASSETS_PATH = str(PROJECT_ROOT / "extracted_assets" / "shimeji_animations_transparent")
+DEFAULT_ASSETS_PATH = str(PROJECT_ROOT / "extracted_assets" / "silva")
 
 DEFAULT_CONFIG = {
-    "character_name": "Saber",
+    "character_name": "Silva",
     "ai_provider": "nvidia",
-    "ai_model": "meta/llama-3.2-11b-vision-instruct",
+    "ai_model": "meta/llama-3.1-8b-instruct",
+    "ai_vision_model": "meta/llama-3.2-11b-vision-instruct",
     "api_key": "",
     "voice_provider": "edge_tts",
-    "voice": "pt-BR-FranciscaNeural",
-    "voice_speed": 1.0,
+    "voice": "pt-BR-AntonioNeural",
+    "voice_speed": 1.05,
     "voice_volume": 1.0,
+    "voice_pitch": "+20Hz",
     "microphone_enabled": False,
     "whisper_model": "small",
     "screen_monitoring_enabled": False,
     "screen_interval_seconds": 2.0,
-    "automatic_comments_level": "LOW",
+    "spontaneous_talk_enabled": True,
     "click_through": False,
     "always_on_top": True,
+    "window_margin_x": 40,
+    "window_margin_y": 40,
     "scale": 1.0,
     "language": "pt-BR",
     "private_mode": True,

@@ -11,8 +11,16 @@ class TestSettings:
         settings = Settings(config_path=str(config_path))
 
         assert config_path.exists()
-        assert settings.get("character_name") == "Saber"
+        assert settings.get("character_name") == "Silva"
         assert settings.get("whisper_model") == "small"
+
+    def test_default_text_model_is_not_the_vision_model(self, tmp_path):
+        """Regression test: a vision-capable model was briefly the default for
+        ALL chat, not just screen-related messages, and it was unreliable at
+        following the action/JSON format (see orchestrator's dual-provider setup)."""
+        settings = Settings(config_path=str(tmp_path / "config.json"))
+        assert settings.get("ai_model") != settings.get("ai_vision_model")
+        assert "vision" not in settings.get("ai_model")
 
     def test_loads_existing_config_and_merges_defaults(self, tmp_path):
         config_path = tmp_path / "config.json"
@@ -38,7 +46,7 @@ class TestSettings:
 
         settings = Settings(config_path=str(config_path))
 
-        assert settings.get("character_name") == "Saber"
+        assert settings.get("character_name") == "Silva"
 
 
 class TestApiKeyEnvPriority:

@@ -9,7 +9,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 app = QApplication.instance() or QApplication(sys.argv)
 
 # Ship-with-repo asset copy, so this test doesn't depend on a personal Downloads folder
-ASSETS_DIR = os.path.join(os.path.dirname(__file__), "..", "extracted_assets", "shimeji_animations_transparent")
+ASSETS_DIR = os.path.join(os.path.dirname(__file__), "..", "extracted_assets", "silva")
 
 from src.character.sprite_loader import SpriteLoader
 from src.character.animation_manager import AnimationManager
@@ -18,7 +18,7 @@ from src.memory.manager import MemoryManager
 from src.desktop.permissions import PermissionManager
 from src.vision.change_detector import ScreenChangeDetector
 
-class TestSaberCompanion(unittest.TestCase):
+class TestSilvaCompanion(unittest.TestCase):
     def test_sprite_loader_and_animation(self):
         loader = SpriteLoader(ASSETS_DIR)
         anim_mgr = AnimationManager(loader)

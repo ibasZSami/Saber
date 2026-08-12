@@ -63,7 +63,7 @@ class SetupWizard(QWidget):
         self.layout = QVBoxLayout(self)
 
         # Header
-        self.title_lbl = QLabel("✨ Bem-vindo ao Shimeji AI Companion (Saber) ✨")
+        self.title_lbl = QLabel("✨ Bem-vindo ao Shimeji AI Companion (Silva) ✨")
         self.title_lbl.setStyleSheet("font-size: 16px; font-weight: bold; color: #d1b3ff; margin-bottom: 10px;")
         self.title_lbl.setAlignment(Qt.AlignCenter)
         self.layout.addWidget(self.title_lbl)
@@ -74,7 +74,7 @@ class SetupWizard(QWidget):
         # Page 1: Character Name
         self.page1 = QGroupBox("Etapa 1: Nome da Personagem")
         p1_layout = QFormLayout(self.page1)
-        self.name_input = QLineEdit(self.settings.get("character_name", "Saber"))
+        self.name_input = QLineEdit(self.settings.get("character_name", "Silva"))
         p1_layout.addRow("Nome:", self.name_input)
         self.stacked_widget.addWidget(self.page1)
 
@@ -86,8 +86,8 @@ class SetupWizard(QWidget):
         self.api_key_input = QLineEdit(self.settings.get("api_key", ""))
         self.api_key_input.setEchoMode(QLineEdit.Password)
         self.api_key_input.setPlaceholderText("nvapi-... ou sk-...")
-        self.ai_model_input = QLineEdit(self.settings.get("ai_model", "meta/llama-3.1-70b-instruct"))
-        self.ai_model_input.setPlaceholderText("ex: meta/llama-3.1-70b-instruct ou gpt-4o-mini")
+        self.ai_model_input = QLineEdit(self.settings.get("ai_model", "meta/llama-3.1-8b-instruct"))
+        self.ai_model_input.setPlaceholderText("ex: meta/llama-3.1-8b-instruct ou gpt-4o-mini")
         p2_layout.addRow("Provedor de IA:", self.ai_provider_combo)
         p2_layout.addRow("API Key:", self.api_key_input)
         p2_layout.addRow("Modelo:", self.ai_model_input)

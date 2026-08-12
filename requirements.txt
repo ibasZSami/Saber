@@ -16,4 +16,5 @@ python-dotenv>=1.0.0
 pygame>=2.5.0
 faster-whisper>=1.0.0
 sounddevice>=0.4.6
+soundcard>=0.4.3
 keyboard>=0.13.5

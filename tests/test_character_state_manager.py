@@ -49,3 +49,18 @@ class TestCharacterStateManager:
         sm.transition_to("GAMING")
 
         anim_mgr.play.assert_called_with("game")
+
+    def test_state_change_emits_character_state_changed(self):
+        sm = StateMachine("IDLE")
+        anim_mgr = MagicMock()
+        CharacterStateManager(sm, anim_mgr)
+
+        received = []
+        sm.event_bus.subscribe("CHARACTER_STATE_CHANGED", lambda **kwargs: received.append(kwargs))
+
+        sm.transition_to("HAPPY", reason="teste")
+
+        # EventBus is a process-wide singleton, so earlier tests' CharacterStateManager
+        # instances in this same file may still be subscribed to STATE_CHANGED too (and
+        # re-fire here) — assert the expected event is present, not that it's the only one.
+        assert {"state": "HAPPY", "animation": "happy", "reason": "teste"} in received

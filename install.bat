@@ -1,5 +1,5 @@
 @echo off
-title Instalador - Shimeji AI Companion (Saber)
+title Instalador - Shimeji AI Companion (Silva)
 echo ========================================================
 echo   Instalando dependencias do Shimeji AI Companion
 echo ========================================================

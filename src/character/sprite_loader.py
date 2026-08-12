@@ -6,34 +6,21 @@ import numpy as np
 from PIL import Image
 from PySide6.QtGui import QPixmap, QImage
 
-# Minimum consecutive fully-transparent rows that counts as a real gap between
-# two disconnected shapes (as opposed to just a thin part of the body, like a neck).
-MIN_GAP_ROWS = 2
-# Height fraction below which caption/gap detection doesn't look — real character
-# content is expected up here, so a false "gap" this early would be noise.
-GAP_SEARCH_START = 0.30
-GAP_SEARCH_END = 0.98
-# Used only when no real transparent gap is found: assume anything below this
-# fraction of the image height risks being a caption baked into the sheet.
-NO_GAP_FALLBACK_HEIGHT = 0.75
-# A column run narrower than this fraction of the image width is treated as
-# stray noise (e.g. antialiasing bleed) rather than a real character pose.
-MIN_FRAME_WIDTH_RATIO = 0.08
+# A pixel counts as part of the character if its alpha is above this.
+ALPHA_THRESHOLD = 10
 
 
 class SpriteLoader:
-    """Loads a single representative pose per character action from this asset
-    pack's sprite sheets.
+    """Loads a single representative pose per character action from a sprite pack.
 
-    The sheets are inconsistent: some are clean multi-pose strips, others have a
-    Portuguese caption + folder icon baked into the bottom of the image. Trusting a
-    fixed frame count per action (the original approach) sliced through poses
-    incorrectly and let captions leak into the displayed image. Instead, this reads
-    the alpha channel directly to find one clean, undamaged pose:
-    1. Find where the character's silhouette ends vertically, using a real gap of
-       transparent rows (or a conservative height fraction if there's no gap).
-    2. Within that region, pick the widest contiguous run of opaque columns — the
-       most likely candidate for a full, uncropped pose.
+    Different asset packs bake in different kinds of junk around the actual pose:
+    a caption + icon at the bottom, a sliver of a neighboring sprite bleeding in
+    at an edge, several near-duplicate poses side by side. Trusting a fixed frame
+    count/crop per action broke on every pack tried so far. Instead, this reads
+    the alpha channel directly and keeps only the *largest connected blob* of
+    opaque pixels — the character is reliably the biggest contiguous shape in
+    the image; captions, icons, and bleed fragments are reliably smaller and
+    disconnected from it.
     """
 
     def __init__(self, assets_dir: str):
@@ -47,38 +34,42 @@ class SpriteLoader:
         qimage = QImage(data, pil_image.width, pil_image.height, QImage.Format_RGBA8888)
         return QPixmap.fromImage(qimage)
 
-    def _find_content_bottom(self, alpha: np.ndarray) -> int:
-        h, _ = alpha.shape
-        row_has_content = (alpha > 10).any(axis=1)
-        lo, hi = int(h * GAP_SEARCH_START), int(h * GAP_SEARCH_END)
-        run = 0
-        for y in range(lo, hi):
-            if not row_has_content[y]:
-                run += 1
-                if run >= MIN_GAP_ROWS:
-                    return y - run + 1
-            else:
-                run = 0
-        return max(1, int(h * NO_GAP_FALLBACK_HEIGHT))
+    def _largest_component_bbox(self, mask: np.ndarray) -> Optional[Tuple[int, int, int, int]]:
+        """Flood-fills each connected group of True pixels in `mask` and returns
+        the (x0, y0, x1, y1) bounding box of the largest one, or None if `mask`
+        is empty."""
+        h, w = mask.shape
+        visited = np.zeros_like(mask, dtype=bool)
+        best_bbox = None
+        best_size = 0
 
-    def _find_widest_frame(self, alpha_top: np.ndarray) -> Tuple[int, int]:
-        _, w = alpha_top.shape
-        col_has_content = (alpha_top > 10).any(axis=0)
-        runs = []
-        start = None
-        for x in range(w):
-            if col_has_content[x] and start is None:
-                start = x
-            elif not col_has_content[x] and start is not None:
-                runs.append((start, x))
-                start = None
-        if start is not None:
-            runs.append((start, w))
+        ys, xs = np.where(mask)
+        for start_y, start_x in zip(ys.tolist(), xs.tolist()):
+            if visited[start_y, start_x]:
+                continue
 
-        runs = [r for r in runs if (r[1] - r[0]) > w * MIN_FRAME_WIDTH_RATIO]
-        if not runs:
-            return (0, w)
-        return max(runs, key=lambda r: r[1] - r[0])
+            stack = [(start_y, start_x)]
+            visited[start_y, start_x] = True
+            min_y = max_y = start_y
+            min_x = max_x = start_x
+            size = 0
+
+            while stack:
+                y, x = stack.pop()
+                size += 1
+                min_y, max_y = min(min_y, y), max(max_y, y)
+                min_x, max_x = min(min_x, x), max(max_x, x)
+                for dy, dx in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                    ny, nx = y + dy, x + dx
+                    if 0 <= ny < h and 0 <= nx < w and mask[ny, nx] and not visited[ny, nx]:
+                        visited[ny, nx] = True
+                        stack.append((ny, nx))
+
+            if size > best_size:
+                best_size = size
+                best_bbox = (min_x, min_y, max_x + 1, max_y + 1)
+
+        return best_bbox
 
     def load_sprite(self, anim_name: str) -> Optional[QPixmap]:
         if anim_name in self.cache:
@@ -93,10 +84,10 @@ class SpriteLoader:
             img = Image.open(file_path).convert("RGBA")
             alpha = np.array(img)[:, :, 3]
 
-            cut_y = self._find_content_bottom(alpha)
-            x0, x1 = self._find_widest_frame(alpha[:cut_y, :])
+            bbox = self._largest_component_bbox(alpha > ALPHA_THRESHOLD)
+            cropped = img.crop(bbox) if bbox else img
 
-            pixmap = self.pil_to_qpixmap(img.crop((x0, 0, x1, cut_y)))
+            pixmap = self.pil_to_qpixmap(cropped)
             self.cache[anim_name] = pixmap
             return pixmap
         except Exception as e:

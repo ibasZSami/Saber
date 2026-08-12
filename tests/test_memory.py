@@ -1,5 +1,12 @@
 from src.memory.database import Database
 from src.memory.manager import MemoryManager
+from src.core.event_bus import EventBus
+
+
+def _capture(event_bus, event_type):
+    received = []
+    event_bus.subscribe(event_type, lambda **kwargs: received.append(kwargs))
+    return received
 
 
 class TestDatabase:
@@ -69,3 +76,30 @@ class TestMemoryManager:
         mgr.record_turn("oi", "olá!")
         history = mgr.get_history()
         assert [h["role"] for h in history] == ["user", "assistant"]
+
+
+class TestMemoryManagerEvents:
+    def test_remember_emits_memory_created(self, tmp_path):
+        mgr = MemoryManager(db=Database(db_path=str(tmp_path / "mem.db")))
+        created = _capture(mgr.event_bus, "MEMORY_CREATED")
+
+        mgr.remember("cidade", "Sao Paulo")
+
+        assert created == [{"key": "cidade", "value": "Sao Paulo"}]
+
+    def test_get_memories_emits_memory_recalled_when_nonempty(self, tmp_path):
+        mgr = MemoryManager(db=Database(db_path=str(tmp_path / "mem.db")))
+        mgr.remember("cidade", "Sao Paulo")
+        recalled = _capture(mgr.event_bus, "MEMORY_RECALLED")
+
+        mgr.get_memories()
+
+        assert recalled == [{"count": 1}]
+
+    def test_get_memories_does_not_emit_when_empty(self, tmp_path):
+        mgr = MemoryManager(db=Database(db_path=str(tmp_path / "mem.db")))
+        recalled = _capture(mgr.event_bus, "MEMORY_RECALLED")
+
+        mgr.get_memories()
+
+        assert recalled == []

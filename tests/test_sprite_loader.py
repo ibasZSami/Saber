@@ -45,32 +45,50 @@ class TestSpriteLoaderSinglePose:
         pixmap = loader.load_sprite("idle")
 
         assert pixmap.width() == 61   # columns 20..80 inclusive
-        assert pixmap.height() == 71  # rows 0..70 (only the bottom edge is trimmed)
+        assert pixmap.height() == 61  # rows 10..70 inclusive — tight on all sides now
 
 
 class TestSpriteLoaderCaptionExclusion:
     def test_excludes_content_below_a_real_transparency_gap(self, tmp_path):
-        """Regression test: this asset pack bakes a Portuguese caption + folder
-        icon under some sprites, separated from the character by a transparent
-        gap. That caption used to get sliced into the displayed frame."""
-        character = (20, 10, 80, 40)
-        caption = (5, 51, 95, 70)  # wider than the character — must NOT leak in
+        """Regression test: one asset pack bakes a Portuguese caption + folder
+        icon under some sprites, separated from the character by a gap. The
+        caption is also *wider* than the character, so picking by width alone
+        would grab it — picking by connected-component area must not."""
+        character = (20, 10, 80, 40)   # area 61*31 = 1891
+        caption = (5, 51, 95, 70)      # area 91*20 = 1820 — wider, but smaller overall
         _make_image(tmp_path / "sleep.png", (100, 100), [character, caption])
         loader = SpriteLoader(str(tmp_path))
 
         pixmap = loader.load_sprite("sleep")
 
-        assert pixmap.height() == 41   # rows 0..40 only, gap+caption excluded
-        assert pixmap.width() == 61    # the character's width, NOT the wider caption's
+        assert pixmap.width() == 61   # the character's width, not the wider caption's
+        assert pixmap.height() == 31  # tight crop, caption fully excluded
+
+
+class TestSpriteLoaderBleedExclusion:
+    def test_excludes_small_disconnected_fragment(self, tmp_path):
+        """Regression test: another asset pack has a sliver of the neighboring
+        sprite bleeding in at the top edge (leftover from being cut out of a
+        larger sheet). The main character is always the biggest blob."""
+        bleed_fragment = (0, 0, 15, 8)     # tiny, disconnected, near a corner
+        character = (20, 20, 90, 95)       # much larger
+        _make_image(tmp_path / "thinking.png", (100, 100), [bleed_fragment, character])
+        loader = SpriteLoader(str(tmp_path))
+
+        pixmap = loader.load_sprite("thinking")
+
+        assert pixmap.width() == 71   # 20..90 inclusive — bleed fragment excluded
+        assert pixmap.height() == 76  # 20..95 inclusive
 
 
 class TestSpriteLoaderMultiplePoses:
-    def test_picks_the_widest_column_run_as_the_representative_pose(self, tmp_path):
-        narrow_pose = (10, 10, 39, 60)   # width 30
-        wide_pose = (80, 10, 149, 60)    # width 70
+    def test_picks_the_largest_pose_by_area(self, tmp_path):
+        narrow_pose = (10, 10, 39, 60)   # width 30, area 30*51=1530
+        wide_pose = (80, 10, 149, 60)    # width 70, area 70*51=3570
         _make_image(tmp_path / "game.png", (200, 100), [narrow_pose, wide_pose])
         loader = SpriteLoader(str(tmp_path))
 
         pixmap = loader.load_sprite("game")
 
         assert pixmap.width() == 70
+        assert pixmap.height() == 51

@@ -16,7 +16,7 @@ def create_dummy_icon() -> QIcon:
 class TrayIcon(QSystemTrayIcon):
     def __init__(self, parent=None, on_chat=None, on_settings=None, on_vision_toggle=None, on_exit=None):
         super().__init__(create_dummy_icon(), parent)
-        self.setToolTip("Shimeji AI Companion (Saber)")
+        self.setToolTip("Shimeji AI Companion (Silva)")
 
         menu = QMenu()
         chat_act = menu.addAction("🔮 Conversar")

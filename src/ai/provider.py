@@ -82,7 +82,7 @@ NVIDIA_VISION_MODELS = {
 }
 
 class NvidiaProvider(AIProvider):
-    def __init__(self, api_key: str, model: str = "meta/llama-3.2-11b-vision-instruct"):
+    def __init__(self, api_key: str, model: str = "meta/llama-3.1-70b-instruct"):
         self.api_key = api_key
         self.model = model
         self.base_url = "https://integrate.api.nvidia.com/v1"
