@@ -264,21 +264,24 @@ class CompanionOrchestrator:
                 self.context_manager.set_screen_context({"changed": True, "title": window_title})
                 self.event_bus.emit(SCREEN_CHANGED, title=window_title)
 
+    @staticmethod
+    def _contains_any(user_text: str, *phrases: str) -> bool:
+        lowered = user_text.lower()
+        return any(phrase in lowered for phrase in phrases)
+
     def _maybe_activate_vision_command(self, user_text: str):
-        if VISION_ACTIVATION_PHRASE in user_text.lower():
+        if self._contains_any(user_text, VISION_ACTIVATION_PHRASE):
             self.set_full_vision(True)
 
     def _maybe_activate_system_audio_command(self, user_text: str):
-        lowered = user_text.lower()
-        if any(phrase in lowered for phrase in SYSTEM_AUDIO_ACTIVATION_PHRASES):
+        if self._contains_any(user_text, *SYSTEM_AUDIO_ACTIVATION_PHRASES):
             self.system_audio_listener.set_enabled(True)
 
     def _maybe_toggle_spontaneous_talk(self, user_text: str):
-        lowered = user_text.lower()
-        if SPONTANEOUS_TALK_DISABLE_PHRASE in lowered:
+        if self._contains_any(user_text, SPONTANEOUS_TALK_DISABLE_PHRASE):
             self.spontaneous_talk_enabled = False
             self.settings.set("spontaneous_talk_enabled", False)
-        elif SPONTANEOUS_TALK_ENABLE_PHRASE in lowered:
+        elif self._contains_any(user_text, SPONTANEOUS_TALK_ENABLE_PHRASE):
             self.spontaneous_talk_enabled = True
             self.settings.set("spontaneous_talk_enabled", True)
 
@@ -315,13 +318,7 @@ class CompanionOrchestrator:
                 anim_name = parsed.get("animation", "TALKING")
                 self.state_manager.set_state(anim_name, reason="Spontaneous comment")
 
-                tts_kwargs = {
-                    "voice": self.settings.get("voice", DEFAULT_VOICE),
-                    "volume": self.settings.get("voice_volume", 1.0),
-                    "speed": self.settings.get("voice_speed", 1.0),
-                    "pitch": self.settings.get("voice_pitch", "+0Hz"),
-                }
-                threading.Thread(target=self.tts.speak, args=(speech,), kwargs=tts_kwargs, daemon=True).start()
+                self._speak_async(speech)
                 self.event_bus.emit(SPONTANEOUS_SPEECH, speech=speech)
             except Exception as e:
                 logging.error(f"Spontaneous comment error: {e}")
@@ -343,6 +340,19 @@ class CompanionOrchestrator:
         Delegates to AgentCore (src/core/agent_core.py) — kept as a thin wrapper so existing
         callers (including tests) using orch._execute_action(...) directly are unaffected."""
         return self.agent_core.execute(action, action_param)
+
+    def _speak_async(self, speech: str):
+        """Speaks `speech` on a background thread using the settings-configured
+        voice/volume/speed/pitch — shared by handle_user_message and the
+        spontaneous-comment worker so a new TTS-affecting setting only needs
+        adding in one place."""
+        tts_kwargs = {
+            "voice": self.settings.get("voice", DEFAULT_VOICE),
+            "volume": self.settings.get("voice_volume", 1.0),
+            "speed": self.settings.get("voice_speed", 1.0),
+            "pitch": self.settings.get("voice_pitch", "+0Hz"),
+        }
+        threading.Thread(target=self.tts.speak, args=(speech,), kwargs=tts_kwargs, daemon=True).start()
 
     def handle_user_message(self, user_text: str, on_response=None):
         self._last_interaction_time = time.monotonic()
@@ -406,13 +416,7 @@ class CompanionOrchestrator:
 
                 # UI Update & TTS Execution
                 self.state_manager.set_state(anim_name, reason="AI Response")
-                tts_kwargs = {
-                    "voice": self.settings.get("voice", DEFAULT_VOICE),
-                    "volume": self.settings.get("voice_volume", 1.0),
-                    "speed": self.settings.get("voice_speed", 1.0),
-                    "pitch": self.settings.get("voice_pitch", "+0Hz"),
-                }
-                threading.Thread(target=self.tts.speak, args=(speech,), kwargs=tts_kwargs, daemon=True).start()
+                self._speak_async(speech)
 
                 if on_response:
                     on_response(speech)

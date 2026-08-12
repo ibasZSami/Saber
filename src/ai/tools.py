@@ -3,41 +3,13 @@ import logging
 import re
 from typing import Dict, Any
 
-TOOLS_SCHEMA = [
-    {
-        "name": "observe_screen",
-        "description": "Obtém uma análise da tela atual."
-    },
-    {
-        "name": "translate_screen",
-        "description": "Captura a tela, executa OCR e traduz o texto selecionado."
-    },
-    {
-        "name": "open_application",
-        "description": "Abre um aplicativo configurado na allowlist (ex: chrome, discord, vscode).",
-        "parameters": {"application": "string"}
-    },
-    {
-        "name": "open_url",
-        "description": "Abre uma URL no navegador padrão.",
-        "parameters": {"url": "string"}
-    },
-    {
-        "name": "search_web",
-        "description": "Pesquisa na web por um termo.",
-        "parameters": {"query": "string"}
-    },
-    {
-        "name": "remember",
-        "description": "Salva uma informação importante na memória de longo prazo.",
-        "parameters": {"key": "string", "value": "string"}
-    },
-    {
-        "name": "forget_memory",
-        "description": "Remove uma informação da memória.",
-        "parameters": {"key": "string"}
-    }
-]
+from src.core.tool_registry import describe_tools
+
+# Rebuilt from ToolRegistry's tool definitions (src/core/tool_registry.py) instead
+# of hand-kept-in-sync duplicate — the registry is now the single source of truth
+# for tool name/description/parameters, whether it's building the dispatch table
+# or this prompt-facing schema.
+TOOLS_SCHEMA = describe_tools()
 
 # Narration the model sometimes adds despite the system prompt forbidding it
 # (stage directions like "*ele sorri*", "(ri)", "[pensativo]"), which reads

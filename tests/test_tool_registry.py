@@ -1,6 +1,6 @@
 from unittest.mock import MagicMock
 
-from src.core.tool_registry import PermissionTier, ToolRegistry, ToolSpec, build_default_registry
+from src.core.tool_registry import PermissionTier, ToolRegistry, ToolSpec, build_default_registry, describe_tools
 
 
 class TestToolRegistry:
@@ -101,3 +101,40 @@ class TestBuildDefaultRegistry:
 
         memory_manager.forget.assert_called_once_with("cor_favorita")
         assert result is True
+
+    def test_descriptive_only_tools_have_no_dispatch_handler(self):
+        action_manager, memory_manager = self._managers()
+        registry = build_default_registry(action_manager, memory_manager)
+
+        assert registry.get("observe_screen").dispatch is None
+        assert registry.get("translate_screen").dispatch is None
+
+
+class TestDescribeTools:
+    def test_returns_every_tool_with_name_and_description(self):
+        schema = describe_tools()
+        names = {entry["name"] for entry in schema}
+        assert names == {
+            "observe_screen", "translate_screen", "open_application",
+            "open_url", "search_web", "remember", "forget_memory",
+        }
+        assert all("description" in entry for entry in schema)
+
+    def test_tools_with_parameters_include_them(self):
+        schema = describe_tools()
+        by_name = {entry["name"]: entry for entry in schema}
+        assert by_name["open_application"]["parameters"] == {"application": "string"}
+        assert by_name["remember"]["parameters"] == {"key": "string", "value": "string"}
+
+    def test_descriptive_only_tools_have_no_parameters_key(self):
+        schema = describe_tools()
+        by_name = {entry["name"]: entry for entry in schema}
+        assert "parameters" not in by_name["observe_screen"]
+
+    def test_matches_registry_dispatch_table_tiers(self):
+        """The prompt-facing schema and the dispatch registry are built from the
+        same source (_TOOL_DEFS), so tool names can't silently drift apart."""
+        registry = build_default_registry(MagicMock(), MagicMock())
+        schema_names = {entry["name"] for entry in describe_tools()}
+        registry_names = {entry["name"] for entry in registry.as_tools_schema()}
+        assert schema_names == registry_names

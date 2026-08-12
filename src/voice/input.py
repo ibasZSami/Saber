@@ -3,6 +3,8 @@ import threading
 import time
 from PySide6.QtCore import QObject, Signal
 
+from src.voice.vad_segmenter import SpeechSegmenter
+
 SAMPLE_RATE = 16000
 MIN_AUDIO_SECONDS = 0.3
 
@@ -143,39 +145,24 @@ class VoiceInput(QObject):
         logging.info("Hands-free voice mode enabled")
 
         def _run():
-            buffer = []
-            speaking = False
-            silence_start = None
-            speech_start = None
+            segmenter = SpeechSegmenter(SILENCE_RMS_THRESHOLD, SILENCE_DURATION_S, MAX_UTTERANCE_SECONDS)
 
             def callback(indata, frames, time_info, status):
-                nonlocal buffer, speaking, silence_start, speech_start
                 if self._hands_free_stop_event.is_set():
                     return
 
                 rms = float(np.sqrt(np.mean(indata.astype(np.float32) ** 2)))
                 now = time.monotonic()
 
-                if rms > SILENCE_RMS_THRESHOLD:
-                    if not speaking:
-                        speaking = True
-                        speech_start = now
-                        buffer = []
-                        self.listening_started.emit()
-                    silence_start = None
-                    buffer.append(indata.copy())
-                elif speaking:
-                    buffer.append(indata.copy())
-                    if silence_start is None:
-                        silence_start = now
+                was_speaking = segmenter.is_speaking
+                utterance = segmenter.push(indata.copy(), rms, now)
 
-                    finished_by_silence = (now - silence_start) >= SILENCE_DURATION_S
-                    finished_by_timeout = (now - speech_start) >= MAX_UTTERANCE_SECONDS
-                    if finished_by_silence or finished_by_timeout:
-                        speaking = False
-                        self.listening_stopped.emit()
-                        utterance, buffer = buffer, []
-                        threading.Thread(target=self._transcribe, args=(utterance,), daemon=True).start()
+                if segmenter.is_speaking and not was_speaking:
+                    self.listening_started.emit()
+
+                if utterance is not None:
+                    self.listening_stopped.emit()
+                    threading.Thread(target=self._transcribe, args=(utterance,), daemon=True).start()
 
             try:
                 with sd.InputStream(samplerate=SAMPLE_RATE, channels=1, dtype="int16", callback=callback):

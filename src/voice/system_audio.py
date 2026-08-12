@@ -11,6 +11,7 @@ from src.voice.input import (
     MAX_UTTERANCE_SECONDS,
     TRANSCRIBE_LOCK,
 )
+from src.voice.vad_segmenter import SpeechSegmenter
 
 # soundcard hands back normalized float32 samples (roughly [-1, 1]), unlike the
 # raw int16 PCM from the microphone path — this threshold is on that scale.
@@ -113,10 +114,7 @@ class SystemAudioListener(QObject):
         chunk_frames = int(CAPTURE_SAMPLE_RATE * POLL_CHUNK_SECONDS)
 
         def _run():
-            buffer = []
-            listening = False
-            silence_start = None
-            speech_start = None
+            segmenter = SpeechSegmenter(SYSTEM_AUDIO_RMS_THRESHOLD, SILENCE_DURATION_S, MAX_UTTERANCE_SECONDS)
 
             try:
                 with loopback_mic.recorder(samplerate=CAPTURE_SAMPLE_RATE) as recorder:
@@ -126,26 +124,11 @@ class SystemAudioListener(QObject):
                         rms = float(np.sqrt(np.mean(mono.astype("float32") ** 2)))
                         now = time.monotonic()
 
-                        if rms > SYSTEM_AUDIO_RMS_THRESHOLD:
-                            if not listening:
-                                listening = True
-                                speech_start = now
-                                buffer = []
-                            silence_start = None
-                            buffer.append(mono.copy())
-                        elif listening:
-                            buffer.append(mono.copy())
-                            if silence_start is None:
-                                silence_start = now
-
-                            finished_by_silence = (now - silence_start) >= SILENCE_DURATION_S
-                            finished_by_timeout = (now - speech_start) >= MAX_UTTERANCE_SECONDS
-                            if finished_by_silence or finished_by_timeout:
-                                listening = False
-                                chunk, buffer = buffer, []
-                                threading.Thread(
-                                    target=self._transcribe, args=(chunk,), daemon=True
-                                ).start()
+                        chunk = segmenter.push(mono.copy(), rms, now)
+                        if chunk is not None:
+                            threading.Thread(
+                                target=self._transcribe, args=(chunk,), daemon=True
+                            ).start()
             except Exception as e:
                 logging.error(f"System audio loopback error: {e}")
                 self.transcription_failed.emit("Erro ao capturar o áudio do sistema.")

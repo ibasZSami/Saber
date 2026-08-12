@@ -42,6 +42,9 @@ class AgentCore:
             self.event_bus.emit(ACTION_REJECTED, action=action, action_param=action_param)
             return False
 
-        success = bool(spec.dispatch(action_param))
+        # Descriptive-only tools (observe_screen/translate_screen) have no dispatch
+        # handler — vision/translation are triggered by keyword detection
+        # elsewhere, not through this table — so they're known but never "run".
+        success = bool(spec.dispatch(action_param)) if spec.dispatch else False
         self.event_bus.emit(ACTION_EXECUTED if success else ACTION_REJECTED, action=action, action_param=action_param)
         return success
