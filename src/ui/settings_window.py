@@ -1,6 +1,8 @@
 import sys
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QTabWidget, QFormLayout, QLineEdit, QComboBox, QCheckBox, QPushButton, QLabel, QSpinBox
+    QWidget, QVBoxLayout, QHBoxLayout, QTabWidget, QFormLayout, QLineEdit, QComboBox, QCheckBox,
+    QPushButton, QLabel, QSpinBox, QListWidget, QListWidgetItem, QFileDialog, QMessageBox,
 )
 from src.config.settings import Settings
 from src.core import autostart
@@ -19,9 +21,13 @@ def _pitch_str_to_hz(pitch_str: str) -> int:
         return 0
 
 class SettingsWindow(QWidget):
-    def __init__(self, settings: Settings):
+    def __init__(self, settings: Settings, permission_manager=None):
         super().__init__()
         self.settings = settings
+        # Lets a saved allowlist change take effect immediately — without this,
+        # DesktopActionManager keeps using the snapshot PermissionManager took
+        # at orchestrator startup until the app is restarted.
+        self.permission_manager = permission_manager
         self.setWindowTitle("Configurações - Silva")
         self.resize(500, 450)
 
@@ -130,11 +136,75 @@ class SettingsWindow(QWidget):
         v_layout.addRow("Modelo de Visão:", self.ai_vision_model_input)
         tabs.addTab(vision_tab, "Visão")
 
+        # Tab 5: Aplicativos (allowlist) — só apps aqui podem ser abertos/fechados
+        # por comando de voz/texto (segurança: sem shell livre, sem allowlist não roda).
+        apps_tab = QWidget()
+        apps_layout = QVBoxLayout(apps_tab)
+        apps_layout.addWidget(QLabel(
+            "Apps que a Silva pode abrir/fechar por voz ou texto. Só o que estiver\n"
+            "nesta lista funciona — é a proteção contra abrir qualquer coisa no PC."
+        ))
+        self.allowlist = dict(self.settings.get("allowlist", {}))
+        self.app_list = QListWidget()
+        self._refresh_app_list()
+        apps_layout.addWidget(self.app_list)
+
+        add_row = QHBoxLayout()
+        self.app_name_input = QLineEdit()
+        self.app_name_input.setPlaceholderText("nome (ex: firefox)")
+        self.app_path_input = QLineEdit()
+        self.app_path_input.setPlaceholderText("caminho do .exe")
+        browse_btn = QPushButton("Procurar...")
+        browse_btn.clicked.connect(self._browse_for_app_path)
+        add_btn = QPushButton("Adicionar")
+        add_btn.clicked.connect(self._add_app_to_allowlist)
+        add_row.addWidget(self.app_name_input)
+        add_row.addWidget(self.app_path_input)
+        add_row.addWidget(browse_btn)
+        add_row.addWidget(add_btn)
+        apps_layout.addLayout(add_row)
+
+        remove_btn = QPushButton("Remover selecionado")
+        remove_btn.clicked.connect(self._remove_selected_app)
+        apps_layout.addWidget(remove_btn)
+        tabs.addTab(apps_tab, "Aplicativos")
+
         layout.addWidget(tabs)
 
         save_btn = QPushButton("Salvar Configurações")
         save_btn.clicked.connect(self._save)
         layout.addWidget(save_btn)
+
+    def _refresh_app_list(self):
+        self.app_list.clear()
+        for name, path in sorted(self.allowlist.items()):
+            item = QListWidgetItem(f"{name} → {path}")
+            item.setData(Qt.UserRole, name)
+            self.app_list.addItem(item)
+
+    def _browse_for_app_path(self):
+        path, _ = QFileDialog.getOpenFileName(self, "Selecione o executável", "", "Executáveis (*.exe)")
+        if path:
+            self.app_path_input.setText(path)
+
+    def _add_app_to_allowlist(self):
+        name = self.app_name_input.text().strip().lower()
+        path = self.app_path_input.text().strip()
+        if not name or not path:
+            QMessageBox.warning(self, "Aplicativos", "Preencha o nome e o caminho do executável.")
+            return
+        self.allowlist[name] = path
+        self._refresh_app_list()
+        self.app_name_input.clear()
+        self.app_path_input.clear()
+
+    def _remove_selected_app(self):
+        item = self.app_list.currentItem()
+        if not item:
+            return
+        name = item.data(Qt.UserRole)
+        self.allowlist.pop(name, None)
+        self._refresh_app_list()
 
     def _save(self):
         self.settings.set("character_name", self.name_input.text().strip())
@@ -158,4 +228,8 @@ class SettingsWindow(QWidget):
         self.settings.set("screen_monitoring_enabled", self.vision_chk.isChecked())
         self.settings.set("private_mode", self.private_mode_chk.isChecked())
         self.settings.set("ai_vision_model", self.ai_vision_model_input.text().strip())
+        self.settings.set("allowlist", self.allowlist)
+        if self.permission_manager is not None:
+            self.permission_manager.allowlist.clear()
+            self.permission_manager.allowlist.update(self.allowlist)
         self.close()

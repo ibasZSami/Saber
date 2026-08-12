@@ -64,9 +64,10 @@ vez em quando (inclusive notícias reais), e tem controle real e permissionado s
 ### Ações no Sistema (Tool Registry + permissões em camadas)
 Toda ação passa por um `ToolRegistry` central com tier de permissão (`SAFE` / `CONFIRM` /
 `DANGEROUS`) — não é mais um if/elif solto. Hoje:
-- **Abrir e fechar aplicativos** da `allowlist` do `config.json` (`open_application` /
-  `close_application`) — fechar casa o nome configurado com o processo real rodando (ex:
-  "vscode" ↔ `Code.exe`).
+- **Abrir e fechar aplicativos** da allowlist (`open_application` / `close_application`) —
+  fechar casa o nome configurado com o processo real rodando (ex: "vscode" ↔ `Code.exe`).
+  Gerenciável direto pela aba **Configurações → Aplicativos** (adicionar/remover, sem editar
+  `config.json` na mão) — muda na hora, sem precisar reiniciar o app.
 - **Abrir URL** / **pesquisar na web**.
 - **Ajustar volume por aplicativo** no mixer de som do Windows ("abaixa o som do discord", "muta
   o chrome") — via `pycaw`, funciona com qualquer app tocando som no momento, não só os da
@@ -140,8 +141,9 @@ voz e permissões iniciais.
 pytest tests/ --cov=src --cov-report=term-missing
 ```
 
-365 testes cobrindo orquestrador, ferramentas/permissões, voz, visão, memória, notícias,
-mixer de som, autostart, pesquisa em segundo plano, Modo Nerd, sprites/animação e configuração.
+373 testes cobrindo orquestrador, ferramentas/permissões, voz, visão, memória, notícias,
+mixer de som, autostart, pesquisa em segundo plano, Modo Nerd, tela de Aplicativos, sprites/
+animação e configuração.
 
 ---
 
