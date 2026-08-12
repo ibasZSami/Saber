@@ -15,6 +15,7 @@ from src.core.event_bus import (
 from src.core.state_machine import StateMachine
 from src.core.tool_registry import build_default_registry
 from src.core.agent_core import AgentCore
+from src.core.news import NewsProvider
 from src.character.sprite_loader import SpriteLoader
 from src.character.animation_manager import AnimationManager
 from src.character.state_manager import CharacterStateManager
@@ -33,6 +34,7 @@ from src.desktop.window_manager import WindowManager
 from src.desktop.application_manager import ApplicationManager
 from src.desktop.permissions import PermissionManager
 from src.desktop.actions import DesktopActionManager
+from src.desktop.audio_mixer import AudioMixerManager
 
 from src.memory.manager import MemoryManager
 from src.voice.tts import EdgeTTSProvider, Pyttsx3Provider, DEFAULT_VOICE
@@ -66,13 +68,31 @@ SPONTANEOUS_TALK_ENABLE_PHRASE = "ativar falar aleatoriamente"
 SPONTANEOUS_TALK_CHECK_INTERVAL_S = 75
 SPONTANEOUS_TALK_IDLE_GAP_S = 45
 
+# How many spontaneous-talk checks a headline gets offered to the model before
+# giving up on it. A single shot meant most headlines were wasted on a turn
+# where the (fast, not fully reliable) model picked a different topic instead —
+# but offering it too many times made the same story dominate every comment
+# once it became the top/[DESTAQUE] headline. 2 is enough to actually land the
+# story without it feeling like the only thing Silva ever talks about.
+MAX_HEADLINE_OFFERS = 2
+
 SPONTANEOUS_TALK_PROMPT = (
     "[Comentário espontâneo — você está apenas acompanhando o usuário casualmente, como em uma "
     "chamada de voz juntos, não respondendo a uma pergunta. Fale direto, em primeira pessoa, "
-    "NUNCA narrando em terceira pessoa. Se tiver algo breve e natural para comentar sobre o "
-    "contexto atual (o que está na tela, se está jogando, etc.), diga. Se não houver nada "
-    "específico pra comentar, puxe assunto por conta própria — escolha um destes tipos de "
-    "assunto e varie bastante, não repita sempre o mesmo tipo:\n"
+    "NUNCA narrando em terceira pessoa.\n"
+    "PRIORIDADE MÁXIMA: se houver manchetes reais listadas em [Notícias recentes] abaixo, "
+    "SEMPRE prefira comentar uma delas — é o assunto principal que você deve puxar quando não "
+    "houver algo específico na tela pra comentar, muito mais do que piada/curiosidade/etc. "
+    "Comente como quem viu algo interessante e quer contar — sua opinião/reação em poucas frases, "
+    "não uma leitura seca de manchete. Se alguma vier marcada como [DESTAQUE], é prioridade ainda "
+    "maior: conte essa, com um tom de \"olha só que notícia\", porque é algo grande sendo muito "
+    "comentado agora.\n"
+    "IMPORTANTE sobre notícias: SÓ fale de uma notícia se ela estiver literalmente listada em "
+    "[Notícias recentes] abaixo. NUNCA invente, deduza ou complete notícias.\n"
+    "Se tiver algo breve e natural para comentar sobre o contexto atual (o que está na tela, se "
+    "está jogando, etc.), isso também vale, mas notícias reais disponíveis vêm antes.\n"
+    "Se não houver notícias novas nem nada específico pra comentar, aí sim puxe assunto por "
+    "conta própria — escolha um destes tipos e varie bastante, não repita sempre o mesmo tipo:\n"
     "- Uma piada curta ou trocadilho (pode ser de gato/magia, já que você é um gato-mago);\n"
     "- Uma curiosidade aleatória e divertida (sobre gatos, magia, jogos, tecnologia, o que vier);\n"
     "- Uma pergunta casual sobre o dia, o humor ou o que o usuário está fazendo/sentindo;\n"
@@ -93,6 +113,25 @@ SPONTANEOUS_TALK_PROMPT = (
 # key/value and skips "search_web" entirely, so don't drop the examples.
 DEFAULT_TEXT_MODEL = "meta/llama-3.1-8b-instruct"
 DEFAULT_VISION_MODEL = "meta/llama-3.2-11b-vision-instruct"
+# For messages that actually need careful reasoning (explanations, comparisons,
+# "why"/"how" questions, longer asks) the fast 8B model tends to go incoherent or
+# miss the point — this bigger model is measurably slower (~8s vs ~3s) but far
+# more reliable, so it's only used when _is_complex_query() says the message
+# warrants it, not on every message.
+DEFAULT_COMPLEX_MODEL = "meta/llama-3.1-70b-instruct"
+
+# Phrases that suggest the user wants an explanation/reasoning/analysis rather
+# than a quick reply — routes the message to DEFAULT_COMPLEX_MODEL instead of
+# the fast default. See _is_complex_query.
+COMPLEX_QUERY_KEYWORDS = [
+    "por que", "porque", "explica", "explique", "como funciona", "compare",
+    "diferença entre", "analisa", "analise", "resolve", "resolva", "calcula",
+    "calcule", "passo a passo", "detalha", "detalhe", "resuma", "resumo",
+    "código", "codigo", "escreve um", "escreva um",
+]
+# A long message is also treated as complex even without a keyword match —
+# elaborate asks tend to run long regardless of phrasing.
+COMPLEX_QUERY_WORD_THRESHOLD = 25
 
 class CompanionOrchestrator:
     def __init__(self, settings: Settings):
@@ -110,6 +149,14 @@ class CompanionOrchestrator:
         self.spontaneous_talk_enabled = self.settings.get("spontaneous_talk_enabled", True)
         self._last_interaction_time = time.monotonic()
         self._last_spontaneous_time = 0.0
+        self.news_provider = NewsProvider()
+        # How many times each headline has been offered to the model. A fast/
+        # weak model doesn't reliably follow "prioritize this" every single
+        # time, so a headline gets several chances (MAX_HEADLINE_OFFERS) across
+        # spontaneous-talk checks before being dropped — marking it "used" after
+        # a single offer meant most headlines were burned on a turn where the
+        # model happened to pick a different topic, and never came up again.
+        self._headline_offer_counts = {}
 
         # Initialize Character & Animation
         assets_path = self.settings.get("assets_path", DEFAULT_ASSETS_PATH)
@@ -123,6 +170,7 @@ class CompanionOrchestrator:
         self.memory_manager = MemoryManager()
         self.ai_provider = self._init_ai_provider()
         self.ai_vision_provider = self._init_vision_provider()
+        self.ai_complex_provider = self._init_complex_provider()
 
         # Initialize Vision
         self.screen_capture = ScreenCapture()
@@ -134,10 +182,11 @@ class CompanionOrchestrator:
         self.app_manager = ApplicationManager(self.window_manager)
         self.permission_manager = PermissionManager(self.settings.get("allowlist", {}))
         self.action_manager = DesktopActionManager(self.permission_manager)
+        self.audio_mixer_manager = AudioMixerManager()
 
         # Tool dispatch (SAFE/CONFIRM/DANGEROUS tiers) — see src/core/tool_registry.py
         # and src/core/agent_core.py for the FASE 2 Agent Core extraction.
-        self.tool_registry = build_default_registry(self.action_manager, self.memory_manager)
+        self.tool_registry = build_default_registry(self.action_manager, self.memory_manager, self.audio_mixer_manager)
         self.agent_core = AgentCore(self.tool_registry, self.event_bus)
 
         # Initialize TTS & Voice Input
@@ -204,6 +253,19 @@ class CompanionOrchestrator:
             return NvidiaProvider(api_key=self.settings.get("api_key", ""), model=self.settings.get("ai_vision_model", DEFAULT_VISION_MODEL))
         elif provider_name == "openai":
             return OpenAIProvider(api_key=self.settings.get("api_key", ""), model=self.settings.get("ai_vision_model", "gpt-4o-mini"))
+        return None
+
+    def _init_complex_provider(self):
+        """A second text provider for messages that seem to need real reasoning
+        (see _is_complex_query) — the fast default model trades that away for
+        speed. Returns None for providers with no separate strong-model concept
+        worth swapping to (e.g. Ollama's single local model); callers fall back
+        to the regular fast provider then."""
+        provider_name = self.settings.get("ai_provider", "nvidia")
+        if provider_name == "nvidia":
+            return NvidiaProvider(api_key=self.settings.get("api_key", ""), model=self.settings.get("ai_model_complex", DEFAULT_COMPLEX_MODEL))
+        elif provider_name == "openai":
+            return OpenAIProvider(api_key=self.settings.get("api_key", ""), model=self.settings.get("ai_model_complex", "gpt-4o"))
         return None
 
     def _on_voice_transcription_failed(self, reason: str):
@@ -300,6 +362,29 @@ class CompanionOrchestrator:
         self._last_spontaneous_time = now
         self._trigger_spontaneous_comment()
 
+    def _build_news_context(self) -> str:
+        """Returns a "[Notícias recentes]" block of headlines still worth
+        offering to the model, or "" if there's nothing left to offer. Each
+        feed's very first headline (Google's own top-story ranking) is flagged
+        [DESTAQUE] — the closest proxy available to "important/well covered"
+        without building real trend detection. A headline can be offered up to
+        MAX_HEADLINE_OFFERS times (see its docstring) before being dropped."""
+        headlines = self.news_provider.get_headlines()
+        lines = []
+        for label, key in (("Brasil", "brasil"), ("Mundo", "mundo")):
+            feed = headlines.get(key, [])
+            candidates = [h for h in feed if self._headline_offer_counts.get(h, 0) < MAX_HEADLINE_OFFERS]
+            if not candidates:
+                continue
+            lines.append(f"{label}:")
+            for headline in candidates[:3]:
+                tag = "[DESTAQUE] " if feed and headline == feed[0] else ""
+                lines.append(f"- {tag}{headline}")
+                self._headline_offer_counts[headline] = self._headline_offer_counts.get(headline, 0) + 1
+        if not lines:
+            return ""
+        return "[Notícias recentes]:\n" + "\n".join(lines)
+
     def _trigger_spontaneous_comment(self):
         """A lighter-weight sibling of handle_user_message's worker: speech-only,
         no vision/actions/memory recording, and never counted as a real user turn."""
@@ -309,6 +394,10 @@ class CompanionOrchestrator:
                 memories = self.memory_manager.get_memories()
                 prompt_payload = self.context_manager.build_prompt_context(memories, SPONTANEOUS_TALK_PROMPT)
 
+                news_context = self._build_news_context()
+                if news_context:
+                    prompt_payload += f"\n\n{news_context}"
+
                 raw_ai = self.ai_provider.chat(prompt_payload, SYSTEM_PROMPT, history, image_base64=None)
                 parsed = parse_ai_response(raw_ai)
                 speech = parsed.get("speech", "").strip()
@@ -317,6 +406,13 @@ class CompanionOrchestrator:
 
                 anim_name = parsed.get("animation", "TALKING")
                 self.state_manager.set_state(anim_name, reason="Spontaneous comment")
+
+                # Without this, spontaneous remarks never entered conversation
+                # history — if the user then asked to hear more about something
+                # Silva brought up on their own, the AI genuinely had no record
+                # of having said it. Empty user_text means record_turn only
+                # writes the assistant's side (see memory/manager.py).
+                self.memory_manager.record_turn("", speech)
 
                 self._speak_async(speech)
                 self.event_bus.emit(SPONTANEOUS_SPEECH, speech=speech)
@@ -330,9 +426,20 @@ class CompanionOrchestrator:
         vision_requested = any(kw in user_text.lower() for kw in VISION_TRIGGER_KEYWORDS)
         return vision_available and vision_requested
 
-    def _select_provider(self, vision_needed: bool):
+    def _is_complex_query(self, user_text: str) -> bool:
+        """Whether this message seems to need real reasoning (explanation,
+        comparison, "why"/"how", or just a long/elaborate ask) rather than a
+        quick reply — routes to DEFAULT_COMPLEX_MODEL instead of the fast
+        default, which trades reliability for speed on ordinary messages."""
+        if any(kw in user_text.lower() for kw in COMPLEX_QUERY_KEYWORDS):
+            return True
+        return len(user_text.split()) > COMPLEX_QUERY_WORD_THRESHOLD
+
+    def _select_provider(self, vision_needed: bool, complex_needed: bool = False):
         if vision_needed and self.ai_vision_provider:
             return self.ai_vision_provider
+        if complex_needed and self.ai_complex_provider:
+            return self.ai_complex_provider
         return self.ai_provider
 
     def _execute_action(self, action: str, action_param) -> bool:
@@ -381,7 +488,8 @@ class CompanionOrchestrator:
                         logging.error(f"Failed to capture screen for vision: {e}")
                     self.event_bus.emit(VISION_RESULT, success=bool(image_b64))
 
-                provider = self._select_provider(vision_needed=bool(image_b64))
+                complex_needed = self._is_complex_query(user_text)
+                provider = self._select_provider(vision_needed=bool(image_b64), complex_needed=complex_needed)
                 prompt_payload = self.context_manager.build_prompt_context(memories, user_text, vision_enabled=bool(image_b64))
 
                 # Check explicit translation command

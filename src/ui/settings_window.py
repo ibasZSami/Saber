@@ -3,6 +3,7 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QTabWidget, QFormLayout, QLineEdit, QComboBox, QCheckBox, QPushButton, QLabel, QSpinBox
 )
 from src.config.settings import Settings
+from src.core import autostart
 
 # (display label, edge_tts voice name)
 VOICE_OPTIONS = [
@@ -40,10 +41,14 @@ class SettingsWindow(QWidget):
         self.spontaneous_talk_chk.setToolTip(
             "Também pode ligar/desligar por voz ou texto: \"pare de falar aleatoriamente\" / \"ativar falar aleatoriamente\"."
         )
+        self.autostart_chk = QCheckBox("Iniciar Automaticamente com o Windows")
+        self.autostart_chk.setChecked(autostart.is_enabled())
+        self.autostart_chk.setToolTip("Pode ligar/desligar a qualquer momento aqui, sem precisar reinstalar nada.")
         g_layout.addRow("Nome da Personagem:", self.name_input)
         g_layout.addRow(self.always_on_top_chk)
         g_layout.addRow(self.click_through_chk)
         g_layout.addRow(self.spontaneous_talk_chk)
+        g_layout.addRow(self.autostart_chk)
         tabs.addTab(general_tab, "Geral")
 
         # Tab 2: IA & Provedor
@@ -57,9 +62,17 @@ class SettingsWindow(QWidget):
         self.api_key_input.setPlaceholderText("nvapi-... ou sk-...")
         self.ai_model_input = QLineEdit(self.settings.get("ai_model", "meta/llama-3.1-8b-instruct"))
         self.ai_model_input.setPlaceholderText("ex: meta/llama-3.1-8b-instruct ou gpt-4o-mini")
+        self.ai_model_complex_input = QLineEdit(self.settings.get("ai_model_complex", "meta/llama-3.1-70b-instruct"))
+        self.ai_model_complex_input.setPlaceholderText("ex: meta/llama-3.1-70b-instruct ou gpt-4o")
+        self.ai_model_complex_input.setToolTip(
+            "Usado só em perguntas que parecem precisar de mais raciocínio (explicações, "
+            "comparações, perguntas longas) — mais lento, porém mais preciso e coerente do "
+            "que o modelo rápido padrão."
+        )
         ai_layout.addRow("Provedor de IA:", self.ai_combo)
         ai_layout.addRow("API Key:", self.api_key_input)
-        ai_layout.addRow("Modelo:", self.ai_model_input)
+        ai_layout.addRow("Modelo (rápido):", self.ai_model_input)
+        ai_layout.addRow("Modelo (perguntas complexas):", self.ai_model_complex_input)
         tabs.addTab(ai_tab, "IA")
 
         # Tab 3: Voz
@@ -122,9 +135,12 @@ class SettingsWindow(QWidget):
         self.settings.set("always_on_top", self.always_on_top_chk.isChecked())
         self.settings.set("click_through", self.click_through_chk.isChecked())
         self.settings.set("spontaneous_talk_enabled", self.spontaneous_talk_chk.isChecked())
+        self.settings.set("autostart_enabled", self.autostart_chk.isChecked())
+        autostart.set_enabled(self.autostart_chk.isChecked())
         self.settings.set("ai_provider", self.ai_combo.currentText())
         self.settings.set("api_key", self.api_key_input.text().strip())
         self.settings.set("ai_model", self.ai_model_input.text().strip())
+        self.settings.set("ai_model_complex", self.ai_model_complex_input.text().strip())
         self.settings.set("microphone_enabled", self.mic_chk.isChecked())
         self.settings.set("whisper_model", self.whisper_model_combo.currentText())
         selected_label = self.voice_gender_combo.currentText()

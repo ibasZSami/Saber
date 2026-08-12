@@ -4,6 +4,7 @@ from PySide6.QtWidgets import QApplication
 from PySide6.QtCore import Qt
 
 from src.config.settings import Settings
+from src.core import autostart
 from src.core.orchestrator import CompanionOrchestrator
 from src.core.event_bus import SPONTANEOUS_SPEECH
 from src.ui.pet_window import PetWindow
@@ -19,6 +20,14 @@ def run_app():
     app.setQuitOnLastWindowClosed(False)
 
     settings = Settings()
+
+    # Reconciles the real Windows registry entry with the configured preference
+    # on every launch — defaults to True, so a fresh install auto-starts without
+    # the user having to open Settings and save once first. Also self-heals if
+    # the registry entry is ever missing/removed some other way.
+    desired_autostart = settings.get("autostart_enabled", True)
+    if autostart.is_enabled() != desired_autostart:
+        autostart.set_enabled(desired_autostart)
 
     # Always show wizard if no API key or show main app directly
     if not settings.get("api_key"):

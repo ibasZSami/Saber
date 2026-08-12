@@ -3,7 +3,7 @@ from unittest.mock import MagicMock
 
 from PySide6.QtCore import QTimer
 
-from src.core.orchestrator import CompanionOrchestrator, SPONTANEOUS_TALK_PROMPT
+from src.core.orchestrator import CompanionOrchestrator, SPONTANEOUS_TALK_PROMPT, MAX_HEADLINE_OFFERS
 from src.core.event_bus import EventBus
 from src.core.agent_core import AgentCore
 from src.core.tool_registry import build_default_registry
@@ -257,6 +257,83 @@ class TestSelectProvider:
         orch.ai_vision_provider = None
 
         assert orch._select_provider(vision_needed=True) is orch.ai_provider
+
+    def test_uses_complex_provider_when_needed_and_available(self):
+        orch = CompanionOrchestrator.__new__(CompanionOrchestrator)
+        orch.ai_provider = MagicMock(name="text_provider")
+        orch.ai_vision_provider = None
+        orch.ai_complex_provider = MagicMock(name="complex_provider")
+
+        assert orch._select_provider(vision_needed=False, complex_needed=True) is orch.ai_complex_provider
+
+    def test_falls_back_to_text_provider_when_no_complex_provider_available(self):
+        """e.g. Ollama, which doesn't have a configured strong-model option yet."""
+        orch = CompanionOrchestrator.__new__(CompanionOrchestrator)
+        orch.ai_provider = MagicMock(name="text_provider")
+        orch.ai_vision_provider = None
+        orch.ai_complex_provider = None
+
+        assert orch._select_provider(vision_needed=False, complex_needed=True) is orch.ai_provider
+
+    def test_vision_takes_priority_over_complex(self):
+        orch = CompanionOrchestrator.__new__(CompanionOrchestrator)
+        orch.ai_provider = MagicMock(name="text_provider")
+        orch.ai_vision_provider = MagicMock(name="vision_provider")
+        orch.ai_complex_provider = MagicMock(name="complex_provider")
+
+        assert orch._select_provider(vision_needed=True, complex_needed=True) is orch.ai_vision_provider
+
+
+class TestIsComplexQuery:
+    def _orch(self):
+        return CompanionOrchestrator.__new__(CompanionOrchestrator)
+
+    def test_short_simple_message_is_not_complex(self):
+        orch = self._orch()
+        assert orch._is_complex_query("abre o chrome") is False
+
+    def test_greeting_is_not_complex(self):
+        orch = self._orch()
+        assert orch._is_complex_query("oi, tudo bem?") is False
+
+    def test_explanation_keyword_is_complex(self):
+        orch = self._orch()
+        assert orch._is_complex_query("explica como funciona a fusão nuclear") is True
+
+    def test_why_question_is_complex(self):
+        orch = self._orch()
+        assert orch._is_complex_query("por que o céu é azul?") is True
+
+    def test_keyword_match_is_case_insensitive(self):
+        orch = self._orch()
+        assert orch._is_complex_query("EXPLIQUE isso pra mim") is True
+
+    def test_long_message_without_keyword_is_still_complex(self):
+        orch = self._orch()
+        long_text = " ".join(["palavra"] * 30)
+        assert orch._is_complex_query(long_text) is True
+
+    def test_short_message_without_keyword_is_not_complex(self):
+        orch = self._orch()
+        short_text = " ".join(["palavra"] * 5)
+        assert orch._is_complex_query(short_text) is False
+
+
+class TestInitComplexProvider:
+    def _bare_orchestrator_with_settings(self, **settings_overrides):
+        orch = CompanionOrchestrator.__new__(CompanionOrchestrator)
+        orch.settings = FakeSettings(**settings_overrides)
+        return orch
+
+    def test_nvidia_gets_a_strong_model(self):
+        orch = self._bare_orchestrator_with_settings(ai_provider="nvidia", api_key="nvapi-x")
+        provider = orch._init_complex_provider()
+        assert provider is not None
+        assert "70b" in provider.model
+
+    def test_ollama_has_no_complex_provider(self):
+        orch = self._bare_orchestrator_with_settings(ai_provider="ollama")
+        assert orch._init_complex_provider() is None
 
 
 class TestInitVisionProvider:
@@ -600,6 +677,63 @@ class TestMaybeSpeakSpontaneously:
         orch._trigger_spontaneous_comment.assert_called_once()
 
 
+class TestBuildNewsContext:
+    def _orch(self, headlines):
+        orch = CompanionOrchestrator.__new__(CompanionOrchestrator)
+        orch.news_provider = MagicMock()
+        orch.news_provider.get_headlines.return_value = headlines
+        orch._headline_offer_counts = {}
+        return orch
+
+    def test_empty_headlines_returns_empty_string(self):
+        orch = self._orch({"brasil": [], "mundo": []})
+        assert orch._build_news_context() == ""
+
+    def test_first_headline_per_feed_is_flagged_destaque(self):
+        orch = self._orch({"brasil": ["Manchete A", "Manchete B"], "mundo": ["World A"]})
+
+        result = orch._build_news_context()
+
+        assert "[DESTAQUE] Manchete A" in result
+        assert "- Manchete B" in result and "[DESTAQUE] Manchete B" not in result
+        assert "[DESTAQUE] World A" in result
+
+    def test_headline_keeps_being_offered_across_multiple_checks(self):
+        """A single offer used to permanently consume a headline, so if the
+        (fast, not fully reliable) model picked a different topic that one time,
+        the story never came up again — it now gets several chances."""
+        orch = self._orch({"brasil": ["Manchete A"], "mundo": []})
+
+        first = orch._build_news_context()
+        second = orch._build_news_context()
+
+        assert "Manchete A" in first
+        assert "Manchete A" in second
+
+    def test_headline_stops_being_offered_after_max_offers(self):
+        orch = self._orch({"brasil": ["Manchete A"], "mundo": []})
+
+        for _ in range(MAX_HEADLINE_OFFERS):
+            result = orch._build_news_context()
+            assert "Manchete A" in result
+
+        assert orch._build_news_context() == ""
+
+    def test_offering_headlines_updates_offer_counts(self):
+        orch = self._orch({"brasil": ["Manchete A"], "mundo": []})
+        orch._build_news_context()
+        assert orch._headline_offer_counts["Manchete A"] == 1
+
+    def test_only_headlines_under_the_offer_limit_are_included(self):
+        orch = self._orch({"brasil": ["Manchete A", "Manchete B"], "mundo": []})
+        orch._headline_offer_counts = {"Manchete A": MAX_HEADLINE_OFFERS}
+
+        result = orch._build_news_context()
+
+        assert "Manchete A" not in result
+        assert "Manchete B" in result
+
+
 class TestTriggerSpontaneousComment:
     def _bare_orchestrator(self):
         orch = CompanionOrchestrator.__new__(CompanionOrchestrator)
@@ -613,6 +747,9 @@ class TestTriggerSpontaneousComment:
         orch.state_manager = MagicMock()
         orch.tts = MagicMock()
         orch.settings = FakeSettings()
+        orch.news_provider = MagicMock()
+        orch.news_provider.get_headlines.return_value = {"brasil": [], "mundo": []}
+        orch._headline_offer_counts = {}
         return orch
 
     def test_passes_saved_memories_into_prompt_context(self, monkeypatch):
@@ -631,6 +768,36 @@ class TestTriggerSpontaneousComment:
             {"cor_favorita": "azul"}, SPONTANEOUS_TALK_PROMPT
         )
 
+    def test_appends_news_context_to_prompt_when_available(self, monkeypatch):
+        import threading
+        import json
+        orch = self._bare_orchestrator()
+        orch.news_provider.get_headlines.return_value = {"brasil": ["Manchete BR"], "mundo": []}
+        orch.ai_provider.chat.return_value = json.dumps({
+            "speech": "oi", "animation": "TALKING", "action": "Nenhuma", "action_param": ""
+        })
+        monkeypatch.setattr(threading, "Thread", _SyncThread)
+
+        orch._trigger_spontaneous_comment()
+
+        sent_prompt = orch.ai_provider.chat.call_args[0][0]
+        assert "Manchete BR" in sent_prompt
+        assert "[DESTAQUE]" in sent_prompt
+
+    def test_does_not_append_news_block_when_no_headlines(self, monkeypatch):
+        import threading
+        import json
+        orch = self._bare_orchestrator()
+        orch.ai_provider.chat.return_value = json.dumps({
+            "speech": "oi", "animation": "TALKING", "action": "Nenhuma", "action_param": ""
+        })
+        monkeypatch.setattr(threading, "Thread", _SyncThread)
+
+        orch._trigger_spontaneous_comment()
+
+        sent_prompt = orch.ai_provider.chat.call_args[0][0]
+        assert "Notícias recentes" not in sent_prompt
+
     def test_emits_speech_when_ai_has_something_to_say(self, monkeypatch):
         import threading
         import json
@@ -647,6 +814,36 @@ class TestTriggerSpontaneousComment:
         assert len(received) == 1
         assert "jogo" in received[0]["speech"]
         orch.state_manager.set_state.assert_any_call("TALKING", reason="Spontaneous comment")
+
+    def test_records_spontaneous_speech_into_conversation_history(self, monkeypatch):
+        """Regression: spontaneous remarks used to never enter conversation
+        history, so if the user later asked to hear more about something Silva
+        brought up on its own, the AI had no memory of having said it."""
+        import threading
+        import json
+        orch = self._bare_orchestrator()
+        orch.ai_provider.chat.return_value = json.dumps({
+            "speech": "Vi uma notícia interessante hoje.",
+            "animation": "TALKING", "action": "Nenhuma", "action_param": ""
+        })
+        monkeypatch.setattr(threading, "Thread", _SyncThread)
+
+        orch._trigger_spontaneous_comment()
+
+        orch.memory_manager.record_turn.assert_called_once_with("", "Vi uma notícia interessante hoje.")
+
+    def test_does_not_record_history_when_ai_has_nothing_to_say(self, monkeypatch):
+        import threading
+        import json
+        orch = self._bare_orchestrator()
+        orch.ai_provider.chat.return_value = json.dumps({
+            "speech": "", "animation": "IDLE", "action": "Nenhuma", "action_param": ""
+        })
+        monkeypatch.setattr(threading, "Thread", _SyncThread)
+
+        orch._trigger_spontaneous_comment()
+
+        orch.memory_manager.record_turn.assert_not_called()
 
     def test_emits_nothing_when_ai_has_nothing_to_say(self, monkeypatch):
         """The prompt explicitly allows an empty speech when nothing's worth

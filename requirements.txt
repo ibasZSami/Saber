@@ -18,3 +18,5 @@ faster-whisper>=1.0.0
 sounddevice>=0.4.6
 soundcard>=0.4.3
 keyboard>=0.13.5
+pycaw>=20240210
+comtypes>=1.4.0

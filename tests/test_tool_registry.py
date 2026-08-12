@@ -26,10 +26,12 @@ class TestBuildDefaultRegistry:
         registry = build_default_registry(action_manager, memory_manager)
 
         assert registry.tier_of("open_application") == PermissionTier.CONFIRM
+        assert registry.tier_of("close_application") == PermissionTier.CONFIRM
         assert registry.tier_of("open_url") == PermissionTier.CONFIRM
         assert registry.tier_of("search_web") == PermissionTier.SAFE
         assert registry.tier_of("remember") == PermissionTier.SAFE
         assert registry.tier_of("forget_memory") == PermissionTier.SAFE
+        assert registry.tier_of("set_app_volume") == PermissionTier.CONFIRM
 
     def test_open_application_dispatch_calls_action_manager(self):
         action_manager, memory_manager = self._managers()
@@ -48,6 +50,25 @@ class TestBuildDefaultRegistry:
         result = registry.get("open_application").dispatch("")
 
         action_manager.open_application.assert_not_called()
+        assert result is False
+
+    def test_close_application_dispatch_calls_action_manager(self):
+        action_manager, memory_manager = self._managers()
+        action_manager.close_application.return_value = True
+        registry = build_default_registry(action_manager, memory_manager)
+
+        result = registry.get("close_application").dispatch("chrome")
+
+        action_manager.close_application.assert_called_once_with("chrome")
+        assert result is True
+
+    def test_close_application_dispatch_ignores_empty_param(self):
+        action_manager, memory_manager = self._managers()
+        registry = build_default_registry(action_manager, memory_manager)
+
+        result = registry.get("close_application").dispatch("")
+
+        action_manager.close_application.assert_not_called()
         assert result is False
 
     def test_open_url_dispatch(self):
@@ -110,13 +131,69 @@ class TestBuildDefaultRegistry:
         assert registry.get("translate_screen").dispatch is None
 
 
+class TestSetAppVolumeDispatch:
+    def _registry(self):
+        action_manager, memory_manager = MagicMock(), MagicMock()
+        audio_mixer_manager = MagicMock()
+        registry = build_default_registry(action_manager, memory_manager, audio_mixer_manager)
+        return registry, audio_mixer_manager
+
+    def test_dispatch_converts_percent_to_fraction(self):
+        registry, audio_mixer_manager = self._registry()
+        audio_mixer_manager.set_volume.return_value = True
+
+        result = registry.get("set_app_volume").dispatch({"application": "discord", "level": 20})
+
+        audio_mixer_manager.set_volume.assert_called_once_with("discord", 0.2)
+        assert result is True
+
+    def test_dispatch_ignores_missing_application(self):
+        registry, audio_mixer_manager = self._registry()
+
+        result = registry.get("set_app_volume").dispatch({"level": 20})
+
+        audio_mixer_manager.set_volume.assert_not_called()
+        assert result is False
+
+    def test_dispatch_ignores_missing_level(self):
+        registry, audio_mixer_manager = self._registry()
+
+        result = registry.get("set_app_volume").dispatch({"application": "discord"})
+
+        audio_mixer_manager.set_volume.assert_not_called()
+        assert result is False
+
+    def test_dispatch_ignores_non_numeric_level(self):
+        registry, audio_mixer_manager = self._registry()
+
+        result = registry.get("set_app_volume").dispatch({"application": "discord", "level": "loud"})
+
+        audio_mixer_manager.set_volume.assert_not_called()
+        assert result is False
+
+    def test_dispatch_ignores_non_dict_param(self):
+        registry, audio_mixer_manager = self._registry()
+
+        result = registry.get("set_app_volume").dispatch("discord")
+
+        audio_mixer_manager.set_volume.assert_not_called()
+        assert result is False
+
+    def test_default_audio_mixer_manager_is_constructed_when_not_given(self):
+        """build_default_registry(action_manager, memory_manager) without a third
+        arg must keep working — existing callers shouldn't break."""
+        action_manager, memory_manager = MagicMock(), MagicMock()
+        registry = build_default_registry(action_manager, memory_manager)
+        assert registry.get("set_app_volume").dispatch is not None
+
+
 class TestDescribeTools:
     def test_returns_every_tool_with_name_and_description(self):
         schema = describe_tools()
         names = {entry["name"] for entry in schema}
         assert names == {
-            "observe_screen", "translate_screen", "open_application",
-            "open_url", "search_web", "remember", "forget_memory",
+            "observe_screen", "translate_screen", "open_application", "close_application",
+            "open_url", "search_web", "remember", "forget_memory", "set_app_volume",
         }
         assert all("description" in entry for entry in schema)
 

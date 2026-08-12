@@ -70,6 +70,12 @@ _TOOL_DEFS = [
         "parameters": {"application": "string"},
     },
     {
+        "name": "close_application",
+        "tier": PermissionTier.CONFIRM,
+        "description": "Fecha um aplicativo configurado na allowlist (ex: chrome, discord, vscode).",
+        "parameters": {"application": "string"},
+    },
+    {
         "name": "open_url",
         "tier": PermissionTier.CONFIRM,
         "description": "Abre uma URL no navegador padrão.",
@@ -93,6 +99,12 @@ _TOOL_DEFS = [
         "description": "Remove uma informação da memória.",
         "parameters": {"key": "string"},
     },
+    {
+        "name": "set_app_volume",
+        "tier": PermissionTier.CONFIRM,
+        "description": "Ajusta o volume de um aplicativo específico no mixer de som do Windows (0 a 100).",
+        "parameters": {"application": "string", "level": "number (0-100)"},
+    },
 ]
 
 
@@ -115,6 +127,12 @@ def _open_application(action_manager, action_param) -> bool:
     if not action_param:
         return False
     return bool(action_manager.open_application(action_param))
+
+
+def _close_application(action_manager, action_param) -> bool:
+    if not action_param:
+        return False
+    return bool(action_manager.close_application(action_param))
 
 
 def _open_url(action_manager, action_param) -> bool:
@@ -144,27 +162,54 @@ def _forget_memory(memory_manager, action_param) -> bool:
     return True
 
 
+def _set_app_volume(audio_mixer_manager, action_param) -> bool:
+    if not isinstance(action_param, dict):
+        return False
+    app = action_param.get("application")
+    level = action_param.get("level")
+    if not app or level is None:
+        return False
+    try:
+        level = float(level)
+    except (TypeError, ValueError):
+        return False
+    return bool(audio_mixer_manager.set_volume(app, level / 100.0))
+
+
 # Tool names with a real dispatch handler — observe_screen/translate_screen are
 # deliberately absent (see _TOOL_DEFS' comment above).
 _DISPATCH_BUILDERS = {
-    "open_application": lambda action_manager, memory_manager: (lambda p: _open_application(action_manager, p)),
-    "open_url": lambda action_manager, memory_manager: (lambda p: _open_url(action_manager, p)),
-    "search_web": lambda action_manager, memory_manager: (lambda p: _search_web(action_manager, p)),
-    "remember": lambda action_manager, memory_manager: (lambda p: _remember(memory_manager, p)),
-    "forget_memory": lambda action_manager, memory_manager: (lambda p: _forget_memory(memory_manager, p)),
+    "open_application": lambda m: (lambda p: _open_application(m["action_manager"], p)),
+    "close_application": lambda m: (lambda p: _close_application(m["action_manager"], p)),
+    "open_url": lambda m: (lambda p: _open_url(m["action_manager"], p)),
+    "search_web": lambda m: (lambda p: _search_web(m["action_manager"], p)),
+    "remember": lambda m: (lambda p: _remember(m["memory_manager"], p)),
+    "forget_memory": lambda m: (lambda p: _forget_memory(m["memory_manager"], p)),
+    "set_app_volume": lambda m: (lambda p: _set_app_volume(m["audio_mixer_manager"], p)),
 }
 
 
-def build_default_registry(action_manager, memory_manager) -> ToolRegistry:
+def build_default_registry(action_manager, memory_manager, audio_mixer_manager=None) -> ToolRegistry:
     """Registers every tool from _TOOL_DEFS, binding a real dispatch handler for
     the ones that have one. Each dispatch guard reproduces the original
     CompanionOrchestrator._execute_action if/elif's truthiness/shape checks
     exactly, so wiring this in changes nothing about what executes — only how
-    it's looked up and what permission tier it's tagged with."""
+    it's looked up and what permission tier it's tagged with.
+
+    audio_mixer_manager is optional (defaults to a fresh AudioMixerManager) so
+    existing callers that only pass the first two managers keep working."""
+    if audio_mixer_manager is None:
+        from src.desktop.audio_mixer import AudioMixerManager
+        audio_mixer_manager = AudioMixerManager()
+    managers = {
+        "action_manager": action_manager,
+        "memory_manager": memory_manager,
+        "audio_mixer_manager": audio_mixer_manager,
+    }
     registry = ToolRegistry()
     for tool_def in _TOOL_DEFS:
         build_dispatch = _DISPATCH_BUILDERS.get(tool_def["name"])
-        dispatch = build_dispatch(action_manager, memory_manager) if build_dispatch else None
+        dispatch = build_dispatch(managers) if build_dispatch else None
         registry.register(ToolSpec(
             name=tool_def["name"],
             tier=tool_def["tier"],
