@@ -7,12 +7,14 @@ from src.config.settings import Settings, DEFAULT_ASSETS_PATH
 from src.core.event_bus import (
     EventBus,
     GAME_STARTED, GAME_ENDED, APPLICATION_CHANGED, WINDOW_CHANGED, SCREEN_CHANGED,
-    AI_STARTED, AI_FINISHED, ACTION_REQUESTED, ACTION_EXECUTED, ACTION_REJECTED,
+    AI_STARTED, AI_FINISHED,
     VISION_REQUESTED, VISION_RESULT, TRANSLATION_REQUESTED,
     USER_SPOKE, SYSTEM_AUDIO_DETECTED, VOICE_STARTED, VOICE_FINISHED,
     ERROR_OCCURRED, SPONTANEOUS_SPEECH,
 )
 from src.core.state_machine import StateMachine
+from src.core.tool_registry import build_default_registry
+from src.core.agent_core import AgentCore
 from src.character.sprite_loader import SpriteLoader
 from src.character.animation_manager import AnimationManager
 from src.character.state_manager import CharacterStateManager
@@ -132,6 +134,11 @@ class CompanionOrchestrator:
         self.app_manager = ApplicationManager(self.window_manager)
         self.permission_manager = PermissionManager(self.settings.get("allowlist", {}))
         self.action_manager = DesktopActionManager(self.permission_manager)
+
+        # Tool dispatch (SAFE/CONFIRM/DANGEROUS tiers) — see src/core/tool_registry.py
+        # and src/core/agent_core.py for the FASE 2 Agent Core extraction.
+        self.tool_registry = build_default_registry(self.action_manager, self.memory_manager)
+        self.agent_core = AgentCore(self.tool_registry, self.event_bus)
 
         # Initialize TTS & Voice Input
         self.tts = self._init_tts_provider()
@@ -332,29 +339,10 @@ class CompanionOrchestrator:
         return self.ai_provider
 
     def _execute_action(self, action: str, action_param) -> bool:
-        """Dispatches a structured action parsed from the AI response. Returns True if handled."""
-        if not action or action == "Nenhuma":
-            return False
-
-        self.event_bus.emit(ACTION_REQUESTED, action=action, action_param=action_param)
-
-        success = False
-        if action == "open_application" and action_param:
-            success = bool(self.action_manager.open_application(action_param))
-        elif action == "open_url" and action_param:
-            success = bool(self.action_manager.open_url(action_param))
-        elif action == "search_web" and action_param:
-            success = bool(self.action_manager.search_web(action_param))
-        elif action == "remember" and isinstance(action_param, dict) and action_param.get("key"):
-            self.memory_manager.remember(action_param["key"], action_param.get("value", ""))
-            success = True
-        elif action == "forget_memory" and action_param:
-            key = action_param.get("key") if isinstance(action_param, dict) else action_param
-            self.memory_manager.forget(key)
-            success = True
-
-        self.event_bus.emit(ACTION_EXECUTED if success else ACTION_REJECTED, action=action, action_param=action_param)
-        return success
+        """Dispatches a structured action parsed from the AI response. Returns True if handled.
+        Delegates to AgentCore (src/core/agent_core.py) — kept as a thin wrapper so existing
+        callers (including tests) using orch._execute_action(...) directly are unaffected."""
+        return self.agent_core.execute(action, action_param)
 
     def handle_user_message(self, user_text: str, on_response=None):
         self._last_interaction_time = time.monotonic()

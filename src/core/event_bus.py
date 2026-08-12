@@ -56,3 +56,8 @@ ACTION_REJECTED = "ACTION_REJECTED"
 EMOTION_CHANGED = "EMOTION_CHANGED"
 CHARACTER_STATE_CHANGED = "CHARACTER_STATE_CHANGED"
 SPONTANEOUS_SPEECH = "SPONTANEOUS_SPEECH"
+
+# Fired when a CONFIRM-tier tool executes without an actual confirmation prompt
+# (no UI for that exists yet) — lets a future dialog intercept at one seam later,
+# and gives today's logs a distinct signal from a plain SAFE-tier execution.
+ACTION_CONFIRM_AUTO_APPROVED = "ACTION_CONFIRM_AUTO_APPROVED"

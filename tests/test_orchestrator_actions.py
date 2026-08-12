@@ -5,6 +5,8 @@ from PySide6.QtCore import QTimer
 
 from src.core.orchestrator import CompanionOrchestrator, SPONTANEOUS_TALK_PROMPT
 from src.core.event_bus import EventBus
+from src.core.agent_core import AgentCore
+from src.core.tool_registry import build_default_registry
 
 
 def _bare_orchestrator():
@@ -14,6 +16,7 @@ def _bare_orchestrator():
     orch.action_manager = MagicMock()
     orch.memory_manager = MagicMock()
     orch.event_bus = EventBus()
+    orch.agent_core = AgentCore(build_default_registry(orch.action_manager, orch.memory_manager), orch.event_bus)
     return orch
 
 
@@ -437,6 +440,7 @@ class TestHandleUserMessageErrorHandling:
         orch.action_manager = MagicMock()
         orch.tts = MagicMock()
         orch.system_audio_listener = MagicMock()
+        orch.agent_core = AgentCore(build_default_registry(orch.action_manager, orch.memory_manager), orch.event_bus)
         return orch
 
     def test_provider_exception_recovers_instead_of_hanging(self, monkeypatch):
