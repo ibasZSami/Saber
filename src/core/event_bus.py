@@ -61,3 +61,12 @@ SPONTANEOUS_SPEECH = "SPONTANEOUS_SPEECH"
 # (no UI for that exists yet) — lets a future dialog intercept at one seam later,
 # and gives today's logs a distinct signal from a plain SAFE-tier execution.
 ACTION_CONFIRM_AUTO_APPROVED = "ACTION_CONFIRM_AUTO_APPROVED"
+
+# NERD MODE toggle (kwargs: enabled: bool)
+NERD_MODE_TOGGLED = "NERD_MODE_TOGGLED"
+
+# Background task lifecycle (see src/core/background_tasks.py). kwargs always
+# include task_id; COMPLETED also includes result, FAILED includes error.
+TASK_STARTED = "TASK_STARTED"
+TASK_COMPLETED = "TASK_COMPLETED"
+TASK_FAILED = "TASK_FAILED"

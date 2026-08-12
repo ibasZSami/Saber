@@ -77,9 +77,6 @@ class SystemAudioListener(QObject):
             self._start()
         else:
             self._stop()
-        # _start() may flip self.enabled back to False on failure (e.g. no
-        # loopback device found), so report the actual resulting state.
-        self.listening_toggled.emit(self.enabled)
 
     def _get_loopback_mic(self, sc):
         speaker = sc.default_speaker()
@@ -95,6 +92,7 @@ class SystemAudioListener(QObject):
             logging.error(f"Dependência ausente para ouvir o áudio do sistema: {e}")
             self.enabled = False
             self.transcription_failed.emit("Ouvir o áudio do PC requer o pacote 'soundcard', que não foi encontrado.")
+            self.listening_toggled.emit(False)
             return
 
         try:
@@ -107,6 +105,7 @@ class SystemAudioListener(QObject):
             logging.error("No loopback-capable output device found.")
             self.enabled = False
             self.transcription_failed.emit("Não encontrei um dispositivo de áudio para ouvir o som do sistema.")
+            self.listening_toggled.emit(False)
             return
 
         self._stop_event.clear()
@@ -141,10 +140,16 @@ class SystemAudioListener(QObject):
                 logging.info("System audio listening disabled")
 
         self._thread = threading.Thread(target=_run, daemon=True)
+        # Emitted before starting the thread (not after) so this always
+        # happens-before any failure the thread might emit itself — emitting
+        # from the caller afterward raced with the thread's own emit(False) on
+        # an immediate capture failure, occasionally reporting "on" last.
+        self.listening_toggled.emit(True)
         self._thread.start()
 
     def _stop(self):
         self._stop_event.set()
+        self.listening_toggled.emit(False)
 
     def _resample_to_16k(self, audio, native_rate: int = CAPTURE_SAMPLE_RATE):
         import numpy as np

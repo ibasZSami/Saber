@@ -35,6 +35,14 @@ vez em quando (inclusive notícias reais), e tem controle real e permissionado s
 - **Memória de conversa correta**: tudo que a Silva fala — inclusive comentários espontâneos —
   entra no histórico, então perguntar "me conta mais sobre isso" depois funciona de verdade.
 - **Memória de longo prazo**: banco SQLite local ("Guarde isso", "Esqueça isso").
+- **Modo Nerd**: postura mais proativa (fala espontânea mais frequente), liga/desliga a qualquer
+  momento por voz ou texto — "vira nerd" / "ativa o modo nerd" / "desliga o modo nerd". Resposta
+  de confirmação é instantânea e determinística (não passa pela IA), e o personagem assume uma
+  pose visual diferente enquanto ativo.
+- **Pesquisa real em segundo plano** ("pesquisa X"): busca de verdade na web (DuckDuckGo, sem API
+  key) + resumo pela IA baseado só nos resultados reais (nunca inventa — se não achar nada, diz
+  isso claramente). Não trava a conversa: responde na hora ("pode deixar, já te aviso") e, quando
+  a busca termina, a Silva anuncia o resultado sozinha, na própria voz.
 
 ### Visão de Tela
 - Captura sob demanda (nunca grava nada em disco) e envia como imagem só quando a mensagem
@@ -102,6 +110,8 @@ voz e permissões iniciais.
 | **"minha tela"** (voz/texto) | Ativa a Visão de Tela na hora |
 | **"está ouvindo o som do jogo/pc"** | Ativa escutar o áudio do sistema |
 | **"pare"/"ativar falar aleatoriamente"** | Liga/desliga a fala espontânea |
+| **"vira nerd"/"desliga o modo nerd"** | Liga/desliga o Modo Nerd (mais proativo) |
+| **"pesquisa [assunto]"** | Dispara pesquisa real em segundo plano, avisa quando terminar |
 | Duplo clique na Silva | Abre a janela de Chat |
 | Botão direito / bandeja | Menu de contexto (visão, configurações, sair) |
 
@@ -130,8 +140,8 @@ voz e permissões iniciais.
 pytest tests/ --cov=src --cov-report=term-missing
 ```
 
-323 testes cobrindo orquestrador, ferramentas/permissões, voz, visão, memória, notícias,
-mixer de som, autostart, sprites/animação e configuração.
+365 testes cobrindo orquestrador, ferramentas/permissões, voz, visão, memória, notícias,
+mixer de som, autostart, pesquisa em segundo plano, Modo Nerd, sprites/animação e configuração.
 
 ---
 

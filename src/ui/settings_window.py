@@ -44,11 +44,17 @@ class SettingsWindow(QWidget):
         self.autostart_chk = QCheckBox("Iniciar Automaticamente com o Windows")
         self.autostart_chk.setChecked(autostart.is_enabled())
         self.autostart_chk.setToolTip("Pode ligar/desligar a qualquer momento aqui, sem precisar reinstalar nada.")
+        self.nerd_mode_chk = QCheckBox("Modo Nerd (mais proativo)")
+        self.nerd_mode_chk.setChecked(self.settings.get("nerd_mode_enabled", False))
+        self.nerd_mode_chk.setToolTip(
+            "Também pode ligar/desligar por voz ou texto: \"vira nerd\" / \"desliga o modo nerd\"."
+        )
         g_layout.addRow("Nome da Personagem:", self.name_input)
         g_layout.addRow(self.always_on_top_chk)
         g_layout.addRow(self.click_through_chk)
         g_layout.addRow(self.spontaneous_talk_chk)
         g_layout.addRow(self.autostart_chk)
+        g_layout.addRow(self.nerd_mode_chk)
         tabs.addTab(general_tab, "Geral")
 
         # Tab 2: IA & Provedor
@@ -137,6 +143,7 @@ class SettingsWindow(QWidget):
         self.settings.set("spontaneous_talk_enabled", self.spontaneous_talk_chk.isChecked())
         self.settings.set("autostart_enabled", self.autostart_chk.isChecked())
         autostart.set_enabled(self.autostart_chk.isChecked())
+        self.settings.set("nerd_mode_enabled", self.nerd_mode_chk.isChecked())
         self.settings.set("ai_provider", self.ai_combo.currentText())
         self.settings.set("api_key", self.api_key_input.text().strip())
         self.settings.set("ai_model", self.ai_model_input.text().strip())

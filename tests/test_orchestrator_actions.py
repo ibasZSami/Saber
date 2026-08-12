@@ -3,7 +3,10 @@ from unittest.mock import MagicMock
 
 from PySide6.QtCore import QTimer
 
-from src.core.orchestrator import CompanionOrchestrator, SPONTANEOUS_TALK_PROMPT, MAX_HEADLINE_OFFERS
+from src.core.orchestrator import (
+    CompanionOrchestrator, SPONTANEOUS_TALK_PROMPT, MAX_HEADLINE_OFFERS,
+    NERD_SPONTANEOUS_TALK_IDLE_GAP_S, NERD_SPONTANEOUS_TALK_CHECK_INTERVAL_S,
+)
 from src.core.event_bus import EventBus
 from src.core.agent_core import AgentCore
 from src.core.tool_registry import build_default_registry
@@ -571,6 +574,79 @@ class TestHandleUserMessageErrorHandling:
         assert orch._last_interaction_time >= before
 
 
+class TestHandleUserMessageNerdShortCircuit:
+    """A nerd mode toggle command must never reach the AI provider — it's a
+    pure command with a deterministic reply, not a question."""
+
+    def _bare_orchestrator(self):
+        orch = CompanionOrchestrator.__new__(CompanionOrchestrator)
+        orch.event_bus = EventBus()
+        orch.state_manager = MagicMock()
+        orch.memory_manager = MagicMock()
+        orch.settings = FakeSettings()
+        orch.nerd_mode_enabled = False
+        orch.tts = MagicMock()
+        orch._last_interaction_time = 0.0
+        orch.ai_provider = MagicMock()
+        return orch
+
+    def test_enable_command_speaks_confirmation_without_calling_ai(self, monkeypatch):
+        import threading
+        orch = self._bare_orchestrator()
+        monkeypatch.setattr(threading, "Thread", _SyncThread)
+        responses = []
+
+        orch.handle_user_message("Silva, vira nerd", on_response=lambda r: responses.append(r))
+
+        assert responses == ["Modo Nerd ativado."]
+        orch.ai_provider.chat.assert_not_called()
+        assert orch.nerd_mode_enabled is True
+
+    def test_disable_command_speaks_confirmation_without_calling_ai(self, monkeypatch):
+        import threading
+        orch = self._bare_orchestrator()
+        orch.nerd_mode_enabled = True
+        monkeypatch.setattr(threading, "Thread", _SyncThread)
+        responses = []
+
+        orch.handle_user_message("desliga o modo nerd", on_response=lambda r: responses.append(r))
+
+        assert responses == ["Modo Nerd desativado."]
+        orch.ai_provider.chat.assert_not_called()
+        assert orch.nerd_mode_enabled is False
+
+    def test_confirmation_is_recorded_into_history(self, monkeypatch):
+        import threading
+        orch = self._bare_orchestrator()
+        monkeypatch.setattr(threading, "Thread", _SyncThread)
+
+        orch.handle_user_message("ativa o modo nerd")
+
+        orch.memory_manager.record_turn.assert_called_once_with("ativa o modo nerd", "Modo Nerd ativado.")
+
+    def test_ordinary_message_still_reaches_the_ai(self, monkeypatch):
+        import threading
+        import json
+        orch = self._bare_orchestrator()
+        orch.memory_manager.get_memories.return_value = {}
+        orch.memory_manager.get_history.return_value = []
+        orch.context_manager = MagicMock()
+        orch.context_manager.build_prompt_context.return_value = "prompt"
+        orch.screen_capture = MagicMock()
+        orch.ai_vision_provider = None
+        orch.action_manager = MagicMock()
+        orch.system_audio_listener = MagicMock()
+        orch.agent_core = AgentCore(build_default_registry(orch.action_manager, orch.memory_manager), orch.event_bus)
+        orch.ai_provider.chat.return_value = json.dumps({
+            "speech": "oi!", "animation": "HAPPY", "action": "Nenhuma", "action_param": ""
+        })
+        monkeypatch.setattr(threading, "Thread", _SyncThread)
+
+        orch.handle_user_message("oi, tudo bem?")
+
+        orch.ai_provider.chat.assert_called_once()
+
+
 class TestInitTtsProvider:
     def _bare_orchestrator(self, **settings_overrides):
         orch = CompanionOrchestrator.__new__(CompanionOrchestrator)
@@ -634,10 +710,71 @@ class TestMaybeToggleSpontaneousTalk:
         assert orch.spontaneous_talk_enabled is False
 
 
+class TestMaybeToggleNerdMode:
+    def _bare_orchestrator(self):
+        orch = CompanionOrchestrator.__new__(CompanionOrchestrator)
+        orch.nerd_mode_enabled = False
+        orch.settings = FakeSettings()
+        orch.event_bus = EventBus()
+        orch.state_manager = MagicMock()
+        return orch
+
+    def test_enable_phrase_turns_it_on_and_returns_confirmation(self):
+        orch = self._bare_orchestrator()
+
+        reply = orch._maybe_toggle_nerd_mode("Silva, vira nerd")
+
+        assert orch.nerd_mode_enabled is True
+        assert orch.settings.get("nerd_mode_enabled") is True
+        assert reply == "Modo Nerd ativado."
+        orch.state_manager.set_state.assert_called_once_with("NERD_ACTIVE", reason="Nerd mode enabled")
+
+    def test_disable_phrase_turns_it_off_and_returns_confirmation(self):
+        orch = self._bare_orchestrator()
+        orch.nerd_mode_enabled = True
+
+        reply = orch._maybe_toggle_nerd_mode("desliga o modo nerd")
+
+        assert orch.nerd_mode_enabled is False
+        assert orch.settings.get("nerd_mode_enabled") is False
+        assert reply == "Modo Nerd desativado."
+        orch.state_manager.set_state.assert_called_once_with("IDLE", reason="Nerd mode disabled")
+
+    def test_bare_modo_nerd_phrase_also_enables(self):
+        orch = self._bare_orchestrator()
+        reply = orch._maybe_toggle_nerd_mode("modo nerd")
+        assert orch.nerd_mode_enabled is True
+        assert reply == "Modo Nerd ativado."
+
+    def test_vira_nerd_phrase_also_enables(self):
+        orch = self._bare_orchestrator()
+        reply = orch._maybe_toggle_nerd_mode("Silva, vira nerd")
+        assert orch.nerd_mode_enabled is True
+        assert reply == "Modo Nerd ativado."
+
+    def test_unrelated_message_returns_none_and_does_not_change_state(self):
+        orch = self._bare_orchestrator()
+
+        reply = orch._maybe_toggle_nerd_mode("oi, tudo bem?")
+
+        assert reply is None
+        assert orch.nerd_mode_enabled is False
+        orch.state_manager.set_state.assert_not_called()
+
+    def test_emits_nerd_mode_toggled_event(self):
+        orch = self._bare_orchestrator()
+        received = _capture(orch.event_bus, "NERD_MODE_TOGGLED")
+
+        orch._maybe_toggle_nerd_mode("ativa o modo nerd")
+
+        assert received == [{"enabled": True}]
+
+
 class TestMaybeSpeakSpontaneously:
     def _bare_orchestrator(self, **overrides):
         orch = CompanionOrchestrator.__new__(CompanionOrchestrator)
         orch.spontaneous_talk_enabled = overrides.pop("spontaneous_talk_enabled", True)
+        orch.nerd_mode_enabled = overrides.pop("nerd_mode_enabled", False)
         orch.state_machine = MagicMock()
         orch.state_machine.get_state.return_value = overrides.pop("state", "IDLE")
         orch._last_interaction_time = overrides.pop("last_interaction_time", time.monotonic() - 10_000)
@@ -868,3 +1005,128 @@ class TestTriggerSpontaneousComment:
         monkeypatch.setattr(threading, "Thread", _SyncThread)
 
         orch._trigger_spontaneous_comment()  # should not raise
+
+
+class TestAnnounceTaskOutcome:
+    def _bare_orchestrator(self):
+        orch = CompanionOrchestrator.__new__(CompanionOrchestrator)
+        orch.event_bus = EventBus()
+        orch.memory_manager = MagicMock()
+        orch.memory_manager.get_history.return_value = []
+        orch.context_manager = MagicMock()
+        orch.context_manager.build_prompt_context.return_value = "prompt"
+        orch.ai_provider = MagicMock()
+        orch.state_manager = MagicMock()
+        orch.tts = MagicMock()
+        orch.settings = FakeSettings()
+        return orch
+
+    def test_on_task_completed_announces_the_result(self, monkeypatch):
+        import threading
+        import json
+        orch = self._bare_orchestrator()
+        orch.ai_provider.chat.return_value = json.dumps({
+            "speech": "Terminei a pesquisa, olha só o que achei!",
+            "animation": "EXCITED", "action": "Nenhuma", "action_param": ""
+        })
+        monkeypatch.setattr(threading, "Thread", _SyncThread)
+        received = _capture(orch.event_bus, "SPONTANEOUS_SPEECH")
+
+        orch._on_task_completed(
+            task_id="t1", task_type="research", description="novidades do minecraft", result="resumo aqui"
+        )
+
+        assert received == [{"speech": "Terminei a pesquisa, olha só o que achei!"}]
+        sent_instruction = orch.context_manager.build_prompt_context.call_args[0][1]
+        assert "novidades do minecraft" in sent_instruction
+        assert "resumo aqui" in sent_instruction
+
+    def test_on_task_failed_announces_the_failure(self, monkeypatch):
+        import threading
+        import json
+        orch = self._bare_orchestrator()
+        orch.ai_provider.chat.return_value = json.dumps({
+            "speech": "Não consegui terminar essa pesquisa.",
+            "animation": "CONFUSED", "action": "Nenhuma", "action_param": ""
+        })
+        monkeypatch.setattr(threading, "Thread", _SyncThread)
+        received = _capture(orch.event_bus, "SPONTANEOUS_SPEECH")
+
+        orch._on_task_failed(
+            task_id="t1", task_type="research", description="novidades do minecraft", error="network down"
+        )
+
+        assert received == [{"speech": "Não consegui terminar essa pesquisa."}]
+        sent_instruction = orch.context_manager.build_prompt_context.call_args[0][1]
+        assert "network down" in sent_instruction
+
+    def test_records_announcement_into_history(self, monkeypatch):
+        import threading
+        import json
+        orch = self._bare_orchestrator()
+        orch.ai_provider.chat.return_value = json.dumps({
+            "speech": "Terminei!", "animation": "EXCITED", "action": "Nenhuma", "action_param": ""
+        })
+        monkeypatch.setattr(threading, "Thread", _SyncThread)
+
+        orch._on_task_completed(task_id="t1", task_type="research", description="x", result="y")
+
+        orch.memory_manager.record_turn.assert_called_once_with("", "Terminei!")
+
+    def test_empty_speech_announces_nothing(self, monkeypatch):
+        import threading
+        import json
+        orch = self._bare_orchestrator()
+        orch.ai_provider.chat.return_value = json.dumps({
+            "speech": "", "animation": "IDLE", "action": "Nenhuma", "action_param": ""
+        })
+        monkeypatch.setattr(threading, "Thread", _SyncThread)
+        received = _capture(orch.event_bus, "SPONTANEOUS_SPEECH")
+
+        orch._on_task_completed(task_id="t1", task_type="research", description="x", result="y")
+
+        assert received == []
+        orch.memory_manager.record_turn.assert_not_called()
+
+    def test_error_does_not_propagate(self, monkeypatch):
+        import threading
+        orch = self._bare_orchestrator()
+        orch.ai_provider.chat.side_effect = RuntimeError("boom")
+        monkeypatch.setattr(threading, "Thread", _SyncThread)
+
+        orch._on_task_completed(task_id="t1", task_type="research", description="x", result="y")  # should not raise
+
+
+class TestNerdModeAffectsSpontaneousTiming:
+    def _bare_orchestrator(self, **overrides):
+        orch = CompanionOrchestrator.__new__(CompanionOrchestrator)
+        orch.spontaneous_talk_enabled = True
+        orch.nerd_mode_enabled = overrides.pop("nerd_mode_enabled", False)
+        orch.state_machine = MagicMock()
+        orch.state_machine.get_state.return_value = "IDLE"
+        orch._last_interaction_time = overrides.pop("last_interaction_time", time.monotonic())
+        orch._last_spontaneous_time = overrides.pop("last_spontaneous_time", time.monotonic())
+        orch._trigger_spontaneous_comment = MagicMock()
+        return orch
+
+    def test_normal_mode_waits_the_longer_idle_gap(self):
+        """Just past the NERD idle gap but still under the normal one —
+        should NOT trigger when nerd mode is off."""
+        orch = self._bare_orchestrator(
+            nerd_mode_enabled=False,
+            last_interaction_time=time.monotonic() - (NERD_SPONTANEOUS_TALK_IDLE_GAP_S + 1),
+            last_spontaneous_time=time.monotonic() - (NERD_SPONTANEOUS_TALK_CHECK_INTERVAL_S + 1),
+        )
+        orch._maybe_speak_spontaneously()
+        orch._trigger_spontaneous_comment.assert_not_called()
+
+    def test_nerd_mode_triggers_at_the_shorter_idle_gap(self):
+        """Same elapsed time as above, but with nerd mode on — the shorter
+        thresholds should be satisfied."""
+        orch = self._bare_orchestrator(
+            nerd_mode_enabled=True,
+            last_interaction_time=time.monotonic() - (NERD_SPONTANEOUS_TALK_IDLE_GAP_S + 1),
+            last_spontaneous_time=time.monotonic() - (NERD_SPONTANEOUS_TALK_CHECK_INTERVAL_S + 1),
+        )
+        orch._maybe_speak_spontaneously()
+        orch._trigger_spontaneous_comment.assert_called_once()

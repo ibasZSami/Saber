@@ -187,13 +187,71 @@ class TestSetAppVolumeDispatch:
         assert registry.get("set_app_volume").dispatch is not None
 
 
+class TestResearchTopicDispatch:
+    def _registry(self):
+        action_manager, memory_manager = MagicMock(), MagicMock()
+        background_task_manager = MagicMock()
+        research_manager = MagicMock()
+        registry = build_default_registry(
+            action_manager, memory_manager,
+            background_task_manager=background_task_manager,
+            research_manager=research_manager,
+        )
+        return registry, background_task_manager, research_manager
+
+    def test_dispatch_creates_a_background_task(self):
+        registry, background_task_manager, research_manager = self._registry()
+        background_task_manager.create_task.return_value = "task-123"
+
+        result = registry.get("research_topic").dispatch("novidades do minecraft")
+
+        assert result is True
+        background_task_manager.create_task.assert_called_once()
+        call_args = background_task_manager.create_task.call_args[0]
+        assert call_args[0] == "research"
+        assert call_args[1] == "novidades do minecraft"
+
+    def test_dispatch_work_fn_calls_research_manager(self):
+        registry, background_task_manager, research_manager = self._registry()
+        research_manager.research.return_value = "resumo"
+
+        registry.get("research_topic").dispatch("novidades do minecraft")
+
+        work_fn = background_task_manager.create_task.call_args[0][2]
+        assert work_fn() == "resumo"
+        research_manager.research.assert_called_once_with("novidades do minecraft")
+
+    def test_dispatch_ignores_empty_param(self):
+        registry, background_task_manager, _ = self._registry()
+
+        result = registry.get("research_topic").dispatch("")
+
+        background_task_manager.create_task.assert_not_called()
+        assert result is False
+
+    def test_dispatch_strips_whitespace(self):
+        registry, background_task_manager, _ = self._registry()
+
+        registry.get("research_topic").dispatch("   query com espaço   ")
+
+        call_args = background_task_manager.create_task.call_args[0]
+        assert call_args[1] == "query com espaço"
+
+    def test_no_dispatch_when_deps_not_provided(self):
+        """Without background_task_manager/research_manager, research_topic
+        stays known-but-not-wired, same as observe_screen/translate_screen."""
+        action_manager, memory_manager = MagicMock(), MagicMock()
+        registry = build_default_registry(action_manager, memory_manager)
+        assert registry.get("research_topic").dispatch is None
+
+
 class TestDescribeTools:
     def test_returns_every_tool_with_name_and_description(self):
         schema = describe_tools()
         names = {entry["name"] for entry in schema}
         assert names == {
             "observe_screen", "translate_screen", "open_application", "close_application",
-            "open_url", "search_web", "remember", "forget_memory", "set_app_volume",
+            "open_url", "search_web", "remember", "forget_memory", "set_app_volume", "research_topic",
         }
         assert all("description" in entry for entry in schema)
 

@@ -63,20 +63,25 @@ class TestSetEnabledLifecycle:
         """Regression guard: if the capture thread dies mid-stream (device
         disconnected, driver error), `enabled` must go back to False — otherwise
         set_enabled(True)'s "already enabled" no-op check silently blocks any
-        attempt to restart listening after the failure."""
+        attempt to restart listening after the failure.
+
+        Note: doesn't assert on listening_toggled's delivered value here — Qt
+        only actually delivers a cross-thread signal emission (this one comes
+        from the background capture thread) once something pumps the emitting
+        QObject's event loop, which a bare unittest without a running
+        QApplication.exec() never does; `enabled` is a plain attribute so it's
+        reliably observable synchronously and is what set_enabled's own
+        "already enabled" no-op check actually reads."""
         listener = SystemAudioListener()
         loopback_mic = MagicMock(name="Speakers (loopback)")
         loopback_mic.recorder.side_effect = RuntimeError("device gone")
         fake_sc = _fake_soundcard_module(loopback_mic)
 
         with patch.dict("sys.modules", {"soundcard": fake_sc}):
-            received = []
-            listener.listening_toggled.connect(lambda enabled: received.append(enabled))
             listener.set_enabled(True)
             listener._thread.join(timeout=2)
 
         assert listener.enabled is False
-        assert received[-1] is False
 
     def test_set_enabled_true_with_missing_dependency_fails_gracefully(self):
         listener = SystemAudioListener()

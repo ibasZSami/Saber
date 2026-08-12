@@ -105,6 +105,12 @@ _TOOL_DEFS = [
         "description": "Ajusta o volume de um aplicativo específico no mixer de som do Windows (0 a 100).",
         "parameters": {"application": "string", "level": "number (0-100)"},
     },
+    {
+        "name": "research_topic",
+        "tier": PermissionTier.SAFE,
+        "description": "Inicia uma pesquisa real na web em segundo plano sobre um tópico e avisa quando terminar — não bloqueia a conversa.",
+        "parameters": {"query": "string"},
+    },
 ]
 
 
@@ -176,6 +182,14 @@ def _set_app_volume(audio_mixer_manager, action_param) -> bool:
     return bool(audio_mixer_manager.set_volume(app, level / 100.0))
 
 
+def _research_topic(background_task_manager, research_manager, action_param) -> bool:
+    if not action_param or not str(action_param).strip():
+        return False
+    query = str(action_param).strip()
+    background_task_manager.create_task("research", query, lambda: research_manager.research(query))
+    return True
+
+
 # Tool names with a real dispatch handler — observe_screen/translate_screen are
 # deliberately absent (see _TOOL_DEFS' comment above).
 _DISPATCH_BUILDERS = {
@@ -186,10 +200,17 @@ _DISPATCH_BUILDERS = {
     "remember": lambda m: (lambda p: _remember(m["memory_manager"], p)),
     "forget_memory": lambda m: (lambda p: _forget_memory(m["memory_manager"], p)),
     "set_app_volume": lambda m: (lambda p: _set_app_volume(m["audio_mixer_manager"], p)),
+    "research_topic": lambda m: (lambda p: _research_topic(m["background_task_manager"], m["research_manager"], p)),
 }
 
 
-def build_default_registry(action_manager, memory_manager, audio_mixer_manager=None) -> ToolRegistry:
+def build_default_registry(
+    action_manager,
+    memory_manager,
+    audio_mixer_manager=None,
+    background_task_manager=None,
+    research_manager=None,
+) -> ToolRegistry:
     """Registers every tool from _TOOL_DEFS, binding a real dispatch handler for
     the ones that have one. Each dispatch guard reproduces the original
     CompanionOrchestrator._execute_action if/elif's truthiness/shape checks
@@ -197,7 +218,11 @@ def build_default_registry(action_manager, memory_manager, audio_mixer_manager=N
     it's looked up and what permission tier it's tagged with.
 
     audio_mixer_manager is optional (defaults to a fresh AudioMixerManager) so
-    existing callers that only pass the first two managers keep working."""
+    existing callers that only pass the first two managers keep working.
+    background_task_manager/research_manager have no sensible zero-arg default
+    (a real ResearchManager needs an AI provider) — if either is omitted,
+    research_topic stays descriptive-only (no dispatch), same as
+    observe_screen/translate_screen."""
     if audio_mixer_manager is None:
         from src.desktop.audio_mixer import AudioMixerManager
         audio_mixer_manager = AudioMixerManager()
@@ -205,13 +230,19 @@ def build_default_registry(action_manager, memory_manager, audio_mixer_manager=N
         "action_manager": action_manager,
         "memory_manager": memory_manager,
         "audio_mixer_manager": audio_mixer_manager,
+        "background_task_manager": background_task_manager,
+        "research_manager": research_manager,
     }
     registry = ToolRegistry()
     for tool_def in _TOOL_DEFS:
-        build_dispatch = _DISPATCH_BUILDERS.get(tool_def["name"])
-        dispatch = build_dispatch(managers) if build_dispatch else None
+        name = tool_def["name"]
+        build_dispatch = _DISPATCH_BUILDERS.get(name)
+        research_deps_missing = name == "research_topic" and (
+            background_task_manager is None or research_manager is None
+        )
+        dispatch = build_dispatch(managers) if (build_dispatch and not research_deps_missing) else None
         registry.register(ToolSpec(
-            name=tool_def["name"],
+            name=name,
             tier=tool_def["tier"],
             description=tool_def["description"],
             dispatch=dispatch,

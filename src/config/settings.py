@@ -42,6 +42,7 @@ DEFAULT_CONFIG = {
     "screen_monitoring_enabled": False,
     "screen_interval_seconds": 2.0,
     "spontaneous_talk_enabled": True,
+    "nerd_mode_enabled": False,
     "autostart_enabled": True,
     "click_through": False,
     "always_on_top": True,

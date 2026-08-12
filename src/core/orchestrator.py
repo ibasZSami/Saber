@@ -1,6 +1,7 @@
 import logging
 import threading
 import time
+from typing import Optional
 from PySide6.QtCore import QTimer, QMetaObject, Qt, Q_ARG
 
 from src.config.settings import Settings, DEFAULT_ASSETS_PATH
@@ -11,11 +12,14 @@ from src.core.event_bus import (
     VISION_REQUESTED, VISION_RESULT, TRANSLATION_REQUESTED,
     USER_SPOKE, SYSTEM_AUDIO_DETECTED, VOICE_STARTED, VOICE_FINISHED,
     ERROR_OCCURRED, SPONTANEOUS_SPEECH,
+    NERD_MODE_TOGGLED, TASK_COMPLETED, TASK_FAILED,
 )
 from src.core.state_machine import StateMachine
 from src.core.tool_registry import build_default_registry
 from src.core.agent_core import AgentCore
 from src.core.news import NewsProvider
+from src.core.background_tasks import BackgroundTaskManager
+from src.core.research import ResearchManager
 from src.character.sprite_loader import SpriteLoader
 from src.character.animation_manager import AnimationManager
 from src.character.state_manager import CharacterStateManager
@@ -35,6 +39,7 @@ from src.desktop.application_manager import ApplicationManager
 from src.desktop.permissions import PermissionManager
 from src.desktop.actions import DesktopActionManager
 from src.desktop.audio_mixer import AudioMixerManager
+from src.desktop.web_search import WebSearchProvider
 
 from src.memory.manager import MemoryManager
 from src.voice.tts import EdgeTTSProvider, Pyttsx3Provider, DEFAULT_VOICE
@@ -61,6 +66,23 @@ SYSTEM_AUDIO_ACTIVATION_PHRASES = ["está ouvindo o som do jogo", "está ouvindo
 # not just when spoken to) on and off.
 SPONTANEOUS_TALK_DISABLE_PHRASE = "pare de falar aleatoriamente"
 SPONTANEOUS_TALK_ENABLE_PHRASE = "ativar falar aleatoriamente"
+
+# NERD MODE: a more proactive posture, toggled by voice/text. The confirmation
+# reply is spoken deterministically (see _maybe_toggle_nerd_mode) rather than
+# left to the LLM, so it's always exactly this phrase, reliably and instantly —
+# it's a pure command, not something that needs an AI call to answer.
+NERD_MODE_ENABLE_PHRASES = [
+    "ativar modo nerd", "ativa o modo nerd", "modo nerd", "vira nerd", "virar nerd",
+]
+NERD_MODE_DISABLE_PHRASES = ["desativar modo nerd", "desliga o modo nerd", "sai do modo nerd"]
+NERD_MODE_ENABLED_REPLY = "Modo Nerd ativado."
+NERD_MODE_DISABLED_REPLY = "Modo Nerd desativado."
+
+# NERD MODE makes spontaneous talk noticeably more present — shorter checks
+# and a shorter idle gap — without yet being the full multi-signal relevance
+# scoring described in the roadmap (InitiativeEngine, not built yet).
+NERD_SPONTANEOUS_TALK_CHECK_INTERVAL_S = 40
+NERD_SPONTANEOUS_TALK_IDLE_GAP_S = 20
 
 # How often to even consider making a spontaneous remark, and how long to
 # stay quiet after the user last spoke, so it doesn't talk over a fresh
@@ -158,6 +180,10 @@ class CompanionOrchestrator:
         # model happened to pick a different topic, and never came up again.
         self._headline_offer_counts = {}
 
+        # NERD MODE: a more proactive posture, toggled by voice/text (see
+        # _maybe_toggle_nerd_mode). Persisted like spontaneous_talk_enabled.
+        self.nerd_mode_enabled = self.settings.get("nerd_mode_enabled", False)
+
         # Initialize Character & Animation
         assets_path = self.settings.get("assets_path", DEFAULT_ASSETS_PATH)
         self.sprite_loader = SpriteLoader(assets_path)
@@ -184,9 +210,22 @@ class CompanionOrchestrator:
         self.action_manager = DesktopActionManager(self.permission_manager)
         self.audio_mixer_manager = AudioMixerManager()
 
+        # Background tasks (e.g. "research_topic") — tracked, non-blocking work
+        # that reports back via TASK_COMPLETED/TASK_FAILED instead of a
+        # fire-and-forget thread. Research uses the complex/strong model since
+        # it runs off the interaction path anyway — latency doesn't matter here,
+        # quality does.
+        self.background_task_manager = BackgroundTaskManager(self.event_bus)
+        self.research_manager = ResearchManager(WebSearchProvider(), self.ai_complex_provider or self.ai_provider)
+        self.event_bus.subscribe(TASK_COMPLETED, self._on_task_completed)
+        self.event_bus.subscribe(TASK_FAILED, self._on_task_failed)
+
         # Tool dispatch (SAFE/CONFIRM/DANGEROUS tiers) — see src/core/tool_registry.py
         # and src/core/agent_core.py for the FASE 2 Agent Core extraction.
-        self.tool_registry = build_default_registry(self.action_manager, self.memory_manager, self.audio_mixer_manager)
+        self.tool_registry = build_default_registry(
+            self.action_manager, self.memory_manager, self.audio_mixer_manager,
+            self.background_task_manager, self.research_manager,
+        )
         self.agent_core = AgentCore(self.tool_registry, self.event_bus)
 
         # Initialize TTS & Voice Input
@@ -225,10 +264,13 @@ class CompanionOrchestrator:
         if self.settings.get("screen_monitoring_enabled", False):
             self.vision_timer.start(int(self.settings.get("screen_interval_seconds", 2.0) * 1000))
 
-        # Spontaneous Talk Timer — periodically considers making an unprompted remark
+        # Spontaneous Talk Timer — periodically considers making an unprompted remark.
+        # Ticks at the shorter NERD-mode interval always; _maybe_speak_spontaneously
+        # itself applies the slower normal-mode thresholds when Nerd mode is off, so
+        # toggling the mode doesn't require restarting this timer with a new interval.
         self.spontaneous_talk_timer = QTimer()
         self.spontaneous_talk_timer.timeout.connect(self._maybe_speak_spontaneously)
-        self.spontaneous_talk_timer.start(SPONTANEOUS_TALK_CHECK_INTERVAL_S * 1000)
+        self.spontaneous_talk_timer.start(NERD_SPONTANEOUS_TALK_CHECK_INTERVAL_S * 1000)
 
     def _init_tts_provider(self):
         provider_name = self.settings.get("voice_provider", "edge_tts")
@@ -347,16 +389,46 @@ class CompanionOrchestrator:
             self.spontaneous_talk_enabled = True
             self.settings.set("spontaneous_talk_enabled", True)
 
+    def _maybe_toggle_nerd_mode(self, user_text: str) -> Optional[str]:
+        """Unlike the other _maybe_* toggles, this one returns the
+        deterministic confirmation reply (or None) instead of just flipping a
+        flag — handle_user_message uses that to skip the AI call entirely for
+        a pure mode-toggle command, so the confirmation is instant and always
+        exactly right, not something the LLM has to be trusted to phrase.
+
+        Disable phrases are checked first: "desativar modo nerd"/"desliga o
+        modo nerd" both contain the bare enable phrase "modo nerd" as a
+        substring, so checking enable first would misfire "on" for a disable
+        command."""
+        if self._contains_any(user_text, *NERD_MODE_DISABLE_PHRASES):
+            self.nerd_mode_enabled = False
+            self.settings.set("nerd_mode_enabled", False)
+            self.event_bus.emit(NERD_MODE_TOGGLED, enabled=False)
+            self.state_manager.set_state("IDLE", reason="Nerd mode disabled")
+            return NERD_MODE_DISABLED_REPLY
+        if self._contains_any(user_text, *NERD_MODE_ENABLE_PHRASES):
+            self.nerd_mode_enabled = True
+            self.settings.set("nerd_mode_enabled", True)
+            self.event_bus.emit(NERD_MODE_TOGGLED, enabled=True)
+            self.state_manager.set_state("NERD_ACTIVE", reason="Nerd mode enabled")
+            return NERD_MODE_ENABLED_REPLY
+        return None
+
     def _maybe_speak_spontaneously(self):
         if not self.spontaneous_talk_enabled:
             return
         if self.state_machine.get_state() in ("THINKING", "LISTENING"):
             return  # an exchange is already happening — don't talk over it
 
+        if self.nerd_mode_enabled:
+            idle_gap, check_interval = NERD_SPONTANEOUS_TALK_IDLE_GAP_S, NERD_SPONTANEOUS_TALK_CHECK_INTERVAL_S
+        else:
+            idle_gap, check_interval = SPONTANEOUS_TALK_IDLE_GAP_S, SPONTANEOUS_TALK_CHECK_INTERVAL_S
+
         now = time.monotonic()
-        if now - self._last_interaction_time < SPONTANEOUS_TALK_IDLE_GAP_S:
+        if now - self._last_interaction_time < idle_gap:
             return  # the user just interacted — give it a beat
-        if now - self._last_spontaneous_time < SPONTANEOUS_TALK_CHECK_INTERVAL_S:
+        if now - self._last_spontaneous_time < check_interval:
             return
 
         self._last_spontaneous_time = now
@@ -421,6 +493,53 @@ class CompanionOrchestrator:
 
         threading.Thread(target=_worker, daemon=True).start()
 
+    def _on_task_completed(self, task_id: str, task_type: str, description: str, result):
+        self._announce_task_outcome(task_type, description, success=True, detail=result)
+
+    def _on_task_failed(self, task_id: str, task_type: str, description: str, error: str):
+        self._announce_task_outcome(task_type, description, success=False, detail=error)
+
+    def _announce_task_outcome(self, task_type: str, description: str, success: bool, detail):
+        """Speaks the outcome of a finished background task (e.g. research_topic)
+        unprompted — "avisa quando terminar". Same lightweight shape as
+        _trigger_spontaneous_comment (speech-only, no actions/vision), reusing
+        SYSTEM_PROMPT so the announcement stays in Silva's voice instead of a
+        flat "task completed" string. Runs regardless of nerd_mode_enabled —
+        the user asked for a specific result, not idle chatter."""
+        def _worker():
+            try:
+                if success:
+                    instruction = (
+                        f"[Uma tarefa em segundo plano que você iniciou terminou. Tipo: {task_type}. "
+                        f"Sobre: {description}. Resultado: {detail}. Anuncie isso pro usuário na sua voz, "
+                        "breve e natural, como quem acabou de descobrir algo interessante — pode comentar "
+                        "o conteúdo, não só dizer que terminou.]"
+                    )
+                else:
+                    instruction = (
+                        f"[Uma tarefa em segundo plano que você iniciou falhou. Tipo: {task_type}. "
+                        f"Sobre: {description}. Erro: {detail}. Avise o usuário disso de forma breve e "
+                        "natural, sem tecniquês.]"
+                    )
+                history = self.memory_manager.get_history(limit=4)
+                prompt_payload = self.context_manager.build_prompt_context({}, instruction)
+
+                raw_ai = self.ai_provider.chat(prompt_payload, SYSTEM_PROMPT, history, image_base64=None)
+                parsed = parse_ai_response(raw_ai)
+                speech = parsed.get("speech", "").strip()
+                if not speech:
+                    return
+
+                anim_name = parsed.get("animation", "TALKING")
+                self.state_manager.set_state(anim_name, reason="Background task finished")
+                self.memory_manager.record_turn("", speech)
+                self._speak_async(speech)
+                self.event_bus.emit(SPONTANEOUS_SPEECH, speech=speech)
+            except Exception as e:
+                logging.error(f"Task-outcome announcement error: {e}")
+
+        threading.Thread(target=_worker, daemon=True).start()
+
     def _should_attach_vision(self, user_text: str) -> bool:
         vision_available = self.settings.get("screen_monitoring_enabled", False) and not self.settings.get("private_mode", True)
         vision_requested = any(kw in user_text.lower() for kw in VISION_TRIGGER_KEYWORDS)
@@ -467,6 +586,17 @@ class CompanionOrchestrator:
 
         def _worker():
             try:
+                # A pure command ("vira nerd") gets an instant, deterministic
+                # reply — no AI call needed to answer it, and skipping the LLM
+                # guarantees the exact confirmation phrase.
+                nerd_reply = self._maybe_toggle_nerd_mode(user_text)
+                if nerd_reply is not None:
+                    self.memory_manager.record_turn(user_text, nerd_reply)
+                    self._speak_async(nerd_reply)
+                    if on_response:
+                        on_response(nerd_reply)
+                    return
+
                 self._maybe_activate_vision_command(user_text)
                 self._maybe_activate_system_audio_command(user_text)
                 self._maybe_toggle_spontaneous_talk(user_text)

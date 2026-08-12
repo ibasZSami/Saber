@@ -30,7 +30,10 @@ STATE_ANIM_MAP = {
     "ATTACK": "attack_basic",
     "HURT": "hurt",
     "DEATH": "death",
-    "TELEPORT": "teleport_in"
+    "TELEPORT": "teleport_in",
+    # No dedicated sprite — reuses "serious" as a discreet visual cue that
+    # NERD MODE is on, rather than adding new art for it.
+    "NERD_ACTIVE": "serious",
 }
 
 class CharacterStateManager:
