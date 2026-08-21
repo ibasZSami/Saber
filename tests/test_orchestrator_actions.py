@@ -632,7 +632,8 @@ class TestHandleUserMessageErrorHandling:
 
         assert len(errors) == 1
         assert len(responses) == 1 and responses[0]  # got a fallback message, not silence
-        orch.state_manager.set_state.assert_any_call("CONFUSED", reason="Internal error")
+        orch.state_manager.set_state.assert_any_call("IDLE", reason="Internal error")
+        orch.state_manager.set_emotion.assert_any_call("CONFUSED", reason="Internal error")
 
     def test_successful_message_still_works_with_sync_thread(self, monkeypatch):
         """Sanity check that _SyncThread itself isn't what's causing success below —
@@ -641,7 +642,7 @@ class TestHandleUserMessageErrorHandling:
         import json
         orch = self._bare_orchestrator()
         orch.ai_provider.chat.return_value = json.dumps({
-            "speech": "Oi!", "animation": "HAPPY", "action": "Nenhuma", "action_param": ""
+            "speech": "Oi!", "emotion": "HAPPY", "action": "Nenhuma", "action_param": ""
         })
         monkeypatch.setattr(threading, "Thread", _SyncThread)
 
@@ -660,7 +661,7 @@ class TestHandleUserMessageErrorHandling:
         orch = self._bare_orchestrator()
         orch._last_interaction_time = 0.0
         orch.ai_provider.chat.return_value = json.dumps({
-            "speech": "Oi!", "animation": "HAPPY", "action": "Nenhuma", "action_param": ""
+            "speech": "Oi!", "emotion": "HAPPY", "action": "Nenhuma", "action_param": ""
         })
         monkeypatch.setattr(threading, "Thread", _SyncThread)
 
@@ -734,7 +735,7 @@ class TestHandleUserMessageNerdShortCircuit:
         orch.system_audio_listener = MagicMock()
         orch.agent_core = AgentCore(build_default_registry(orch.action_manager, orch.memory_manager), orch.event_bus)
         orch.ai_provider.chat.return_value = json.dumps({
-            "speech": "oi!", "animation": "HAPPY", "action": "Nenhuma", "action_param": ""
+            "speech": "oi!", "emotion": "HAPPY", "action": "Nenhuma", "action_param": ""
         })
         monkeypatch.setattr(threading, "Thread", _SyncThread)
 
@@ -799,7 +800,7 @@ class TestHandleUserMessageReminderShortCircuit:
         orch.system_audio_listener = MagicMock()
         orch.agent_core = AgentCore(build_default_registry(orch.action_manager, orch.memory_manager), orch.event_bus)
         orch.ai_provider.chat.return_value = json.dumps({
-            "speech": "oi!", "animation": "HAPPY", "action": "Nenhuma", "action_param": ""
+            "speech": "oi!", "emotion": "HAPPY", "action": "Nenhuma", "action_param": ""
         })
         monkeypatch.setattr(threading, "Thread", _SyncThread)
 
@@ -862,7 +863,7 @@ class TestHandleUserMessageIsDirectInput:
         orch._last_interaction_time = 0.0
         orch.agent_core = AgentCore(build_default_registry(orch.action_manager, orch.memory_manager), orch.event_bus)
         orch.ai_provider.chat.return_value = json.dumps({
-            "speech": "oi!", "animation": "HAPPY", "action": "Nenhuma", "action_param": ""
+            "speech": "oi!", "emotion": "HAPPY", "action": "Nenhuma", "action_param": ""
         })
         return orch
 
@@ -1226,7 +1227,7 @@ class TestTriggerSpontaneousComment:
         orch = self._bare_orchestrator()
         orch.memory_manager.get_memories.return_value = {"cor_favorita": "azul"}
         orch.ai_provider.chat.return_value = json.dumps({
-            "speech": "oi", "animation": "TALKING", "action": "Nenhuma", "action_param": ""
+            "speech": "oi", "emotion": "HAPPY", "action": "Nenhuma", "action_param": ""
         })
         monkeypatch.setattr(threading, "Thread", _SyncThread)
 
@@ -1242,7 +1243,7 @@ class TestTriggerSpontaneousComment:
         orch = self._bare_orchestrator()
         orch.news_provider.get_headlines.return_value = {"brasil": ["Manchete BR"], "mundo": []}
         orch.ai_provider.chat.return_value = json.dumps({
-            "speech": "oi", "animation": "TALKING", "action": "Nenhuma", "action_param": ""
+            "speech": "oi", "emotion": "HAPPY", "action": "Nenhuma", "action_param": ""
         })
         monkeypatch.setattr(threading, "Thread", _SyncThread)
 
@@ -1257,7 +1258,7 @@ class TestTriggerSpontaneousComment:
         import json
         orch = self._bare_orchestrator()
         orch.ai_provider.chat.return_value = json.dumps({
-            "speech": "oi", "animation": "TALKING", "action": "Nenhuma", "action_param": ""
+            "speech": "oi", "emotion": "HAPPY", "action": "Nenhuma", "action_param": ""
         })
         monkeypatch.setattr(threading, "Thread", _SyncThread)
 
@@ -1272,7 +1273,7 @@ class TestTriggerSpontaneousComment:
         orch = self._bare_orchestrator()
         orch.ai_provider.chat.return_value = json.dumps({
             "speech": "Nossa, você já tá nesse jogo faz tempo, hein?",
-            "animation": "TALKING", "action": "Nenhuma", "action_param": ""
+            "emotion": "HAPPY", "action": "Nenhuma", "action_param": ""
         })
         monkeypatch.setattr(threading, "Thread", _SyncThread)
 
@@ -1292,7 +1293,7 @@ class TestTriggerSpontaneousComment:
         orch = self._bare_orchestrator()
         orch.ai_provider.chat.return_value = json.dumps({
             "speech": "Vi uma notícia interessante hoje.",
-            "animation": "TALKING", "action": "Nenhuma", "action_param": ""
+            "emotion": "HAPPY", "action": "Nenhuma", "action_param": ""
         })
         monkeypatch.setattr(threading, "Thread", _SyncThread)
 
@@ -1305,7 +1306,7 @@ class TestTriggerSpontaneousComment:
         import json
         orch = self._bare_orchestrator()
         orch.ai_provider.chat.return_value = json.dumps({
-            "speech": "", "animation": "IDLE", "action": "Nenhuma", "action_param": ""
+            "speech": "", "emotion": "HAPPY", "action": "Nenhuma", "action_param": ""
         })
         monkeypatch.setattr(threading, "Thread", _SyncThread)
 
@@ -1320,7 +1321,7 @@ class TestTriggerSpontaneousComment:
         import json
         orch = self._bare_orchestrator()
         orch.ai_provider.chat.return_value = json.dumps({
-            "speech": "", "animation": "IDLE", "action": "Nenhuma", "action_param": ""
+            "speech": "", "emotion": "HAPPY", "action": "Nenhuma", "action_param": ""
         })
         monkeypatch.setattr(threading, "Thread", _SyncThread)
 
@@ -1358,7 +1359,7 @@ class TestAnnounceTaskOutcome:
         orch = self._bare_orchestrator()
         orch.ai_provider.chat.return_value = json.dumps({
             "speech": "Terminei a pesquisa, olha só o que achei!",
-            "animation": "EXCITED", "action": "Nenhuma", "action_param": ""
+            "emotion": "EXCITED", "action": "Nenhuma", "action_param": ""
         })
         monkeypatch.setattr(threading, "Thread", _SyncThread)
         received = _capture(orch.event_bus, "SPONTANEOUS_SPEECH")
@@ -1378,7 +1379,7 @@ class TestAnnounceTaskOutcome:
         orch = self._bare_orchestrator()
         orch.ai_provider.chat.return_value = json.dumps({
             "speech": "Não consegui terminar essa pesquisa.",
-            "animation": "CONFUSED", "action": "Nenhuma", "action_param": ""
+            "emotion": "CONFUSED", "action": "Nenhuma", "action_param": ""
         })
         monkeypatch.setattr(threading, "Thread", _SyncThread)
         received = _capture(orch.event_bus, "SPONTANEOUS_SPEECH")
@@ -1396,7 +1397,7 @@ class TestAnnounceTaskOutcome:
         import json
         orch = self._bare_orchestrator()
         orch.ai_provider.chat.return_value = json.dumps({
-            "speech": "Terminei!", "animation": "EXCITED", "action": "Nenhuma", "action_param": ""
+            "speech": "Terminei!", "emotion": "EXCITED", "action": "Nenhuma", "action_param": ""
         })
         monkeypatch.setattr(threading, "Thread", _SyncThread)
 
@@ -1409,7 +1410,7 @@ class TestAnnounceTaskOutcome:
         import json
         orch = self._bare_orchestrator()
         orch.ai_provider.chat.return_value = json.dumps({
-            "speech": "", "animation": "IDLE", "action": "Nenhuma", "action_param": ""
+            "speech": "", "emotion": "HAPPY", "action": "Nenhuma", "action_param": ""
         })
         monkeypatch.setattr(threading, "Thread", _SyncThread)
         received = _capture(orch.event_bus, "SPONTANEOUS_SPEECH")

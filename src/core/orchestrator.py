@@ -376,7 +376,8 @@ class CompanionOrchestrator:
 
     def _on_voice_transcription_failed(self, reason: str):
         logging.info(f"Voice transcription failed: {reason}")
-        self.state_manager.set_state("CONFUSED", reason=f"Voice input failed: {reason}")
+        self.state_manager.set_state("IDLE", reason=f"Voice input failed: {reason}")
+        self.state_manager.set_emotion("CONFUSED", reason=f"Voice input failed: {reason}")
 
     def set_vision_monitoring(self, enabled: bool):
         # Callers include voice/text commands (handled on a worker thread) and
@@ -598,8 +599,8 @@ class CompanionOrchestrator:
                 if not speech:
                     return
 
-                anim_name = parsed.get("animation", "TALKING")
-                self.state_manager.set_state(anim_name, reason="Spontaneous comment")
+                self.state_manager.set_state("TALKING", reason="Spontaneous comment")
+                self.state_manager.set_emotion(parsed.get("emotion"), reason="Spontaneous comment")
 
                 # Without this, spontaneous remarks never entered conversation
                 # history — if the user then asked to hear more about something
@@ -652,8 +653,8 @@ class CompanionOrchestrator:
                 if not speech:
                     return
 
-                anim_name = parsed.get("animation", "TALKING")
-                self.state_manager.set_state(anim_name, reason="Background task finished")
+                self.state_manager.set_state("TALKING", reason="Background task finished")
+                self.state_manager.set_emotion(parsed.get("emotion"), reason="Background task finished")
                 self.memory_manager.record_turn("", speech)
                 self._speak_async(speech)
                 self.event_bus.emit(SPONTANEOUS_SPEECH, speech=speech)
@@ -783,7 +784,7 @@ class CompanionOrchestrator:
                 parsed = parse_ai_response(raw_ai)
 
                 speech = parsed.get("speech", "").strip()
-                anim_name = parsed.get("animation", "TALKING")
+                emotion = parsed.get("emotion", "HAPPY")
                 action = parsed.get("action", "Nenhuma")
                 action_param = parsed.get("action_param", "")
 
@@ -793,7 +794,7 @@ class CompanionOrchestrator:
                 # leave the user with silence after actually asking something.
                 if not speech:
                     speech = "Desculpa, não consegui pensar em uma resposta agora. Pode repetir?"
-                    anim_name = "CONFUSED"
+                    emotion = "CONFUSED"
 
                 # Perform action if requested
                 self._execute_action(action, action_param)
@@ -801,8 +802,11 @@ class CompanionOrchestrator:
                 # Record memory
                 self.memory_manager.record_turn(user_text, speech)
 
-                # UI Update & TTS Execution
-                self.state_manager.set_state(anim_name, reason="AI Response")
+                # UI Update & TTS Execution — functional state (TALKING) and
+                # emotion (the AI's expressive choice) are independent axes,
+                # see src/character/state_manager.py (FASE 13).
+                self.state_manager.set_state("TALKING", reason="AI Response")
+                self.state_manager.set_emotion(emotion, reason="AI Response")
                 self._speak_async(speech)
 
                 if on_response:
@@ -813,7 +817,8 @@ class CompanionOrchestrator:
                 # stuck in THINKING forever — the state never gets a chance to recover.
                 logging.error(f"Unhandled error processing message: {e}", exc_info=True)
                 self.event_bus.emit(ERROR_OCCURRED, source="handle_user_message", error=str(e))
-                self.state_manager.set_state("CONFUSED", reason="Internal error")
+                self.state_manager.set_state("IDLE", reason="Internal error")
+                self.state_manager.set_emotion("CONFUSED", reason="Internal error")
                 if on_response:
                     on_response("Desculpa, tive um problema processando isso. Pode tentar de novo?")
 

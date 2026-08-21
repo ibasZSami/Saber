@@ -56,10 +56,10 @@ def parse_ai_response(response_text: str) -> Dict[str, Any]:
     # field names, quotes and all).
     speech_match = re.search(r'"speech"\s*:\s*"((?:[^"\\]|\\.)*)"', response_text)
     if speech_match:
-        anim_match = re.search(r'"animation"\s*:\s*"(\w+)"', response_text)
+        emotion_match = re.search(r'"emotion"\s*:\s*"(\w+)"', response_text)
         return {
             "speech": _sanitize_speech(_unescape_json_string(speech_match.group(1))),
-            "animation": anim_match.group(1) if anim_match else "TALKING",
+            "emotion": emotion_match.group(1) if emotion_match else "HAPPY",
             "action": "Nenhuma",
             "action_param": ""
         }
@@ -69,7 +69,7 @@ def parse_ai_response(response_text: str) -> Dict[str, Any]:
     if "{" not in response_text:
         return {
             "speech": _sanitize_speech(response_text),
-            "animation": "TALKING",
+            "emotion": "HAPPY",
             "action": "Nenhuma",
             "action_param": ""
         }
@@ -79,7 +79,7 @@ def parse_ai_response(response_text: str) -> Dict[str, Any]:
     logging.warning(f"Could not salvage speech from malformed AI response: {response_text!r}")
     return {
         "speech": "",
-        "animation": "CONFUSED",
+        "emotion": "CONFUSED",
         "action": "Nenhuma",
         "action_param": ""
     }

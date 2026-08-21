@@ -65,7 +65,7 @@ class TestOpenAIProvider:
         provider = OpenAIProvider(api_key="sk-test")
         raw = provider.chat("oi", "system", [])
         data = json.loads(raw)
-        assert data["animation"] == "SAD"
+        assert data["emotion"] == "SAD"
 
 
 class TestNvidiaProvider:
@@ -131,4 +131,4 @@ class TestOllamaProvider:
         provider = OllamaProvider()
         raw = provider.chat("prompt", "system", [])
         data = json.loads(raw)
-        assert data["animation"] == "SAD"
+        assert data["emotion"] == "SAD"

@@ -44,7 +44,7 @@ class OpenAIProvider(AIProvider):
         if not self.api_key:
             return json.dumps({
                 "speech": "Minha chave de API (OpenAI API Key) ainda não foi configurada. Você pode inseri-la nas Configurações.",
-                "animation": "CONFUSED",
+                "emotion": "CONFUSED",
                 "action": "Nenhuma"
             })
 
@@ -70,7 +70,7 @@ class OpenAIProvider(AIProvider):
             logging.error(f"OpenAI Error: {error_message}")
             return json.dumps({
                 "speech": f"Tive um problema ao me conectar com a IA: {error_message}",
-                "animation": "SAD",
+                "emotion": "SAD",
                 "action": "Nenhuma"
             })
 
@@ -108,7 +108,7 @@ class NvidiaProvider(AIProvider):
         if not self.api_key:
             return json.dumps({
                 "speech": "Minha chave da NVIDIA API Key não foi inserida. Adicione nas Configurações.",
-                "animation": "CONFUSED",
+                "emotion": "CONFUSED",
                 "action": "Nenhuma"
             })
 
@@ -135,7 +135,7 @@ class NvidiaProvider(AIProvider):
             logging.error(f"NVIDIA API Error: {error_message}")
             return json.dumps({
                 "speech": f"Erro na conexão com NVIDIA API: {error_message}",
-                "animation": "SAD",
+                "emotion": "SAD",
                 "action": "Nenhuma"
             })
 
@@ -163,7 +163,7 @@ class OllamaProvider(AIProvider):
             if res.status_code == 200:
                 data = res.json()
                 return data.get("message", {}).get("content", "")
-            return json.dumps({"speech": "Erro ao conectar com Ollama.", "animation": "CONFUSED"})
+            return json.dumps({"speech": "Erro ao conectar com Ollama.", "emotion": "CONFUSED"})
         except Exception as e:
             logging.error(f"Ollama Error: {e}")
-            return json.dumps({"speech": f"Erro Ollama: {str(e)}", "animation": "SAD"})
+            return json.dumps({"speech": f"Erro Ollama: {str(e)}", "emotion": "SAD"})
