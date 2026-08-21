@@ -121,6 +121,11 @@ Toda ação passa por um `ToolRegistry` central com tier de permissão (`SAFE` /
 - **Navegador controlado** (Playwright/Chromium) — **desligado por padrão**, mesmo interruptor
   mestre. Diferente de abrir uma URL: clica em elementos pelo texto visível, digita em campos e lê
   o texto real da página — pra tarefas tipo "abre o site, procura o preço e me diz quanto é".
+- **Plugins** (pasta `plugins/`, **desligado por padrão**) — um arquivo `.py` com uma função
+  `register(context)` adiciona uma ferramenta nova, passando pelo mesmo fluxo de permissão/
+  confirmação de qualquer ferramenta nativa. Não é sandbox — só ative se confiar na origem dos
+  arquivos. Vem com um exemplo funcional (`plugins/example_dice.py`, rola um dado) e um guia
+  completo em `plugins/README.md`.
 
 `CONFIRM` hoje pede confirmação de verdade (diálogo real, com opção de sempre permitir/sempre
 bloquear/só essa vez) antes de executar. `DANGEROUS` existe como tier reservado; nenhuma ação usa
@@ -212,10 +217,10 @@ voz e permissões iniciais.
 pytest tests/ --cov=src --cov-report=term-missing
 ```
 
-1015 testes (91% de cobertura) cobrindo orquestrador, ferramentas/permissões, Agent Engine (task
-loop), mouse/teclado, terminal controlado, navegador controlado, OCR estruturado, Translation
-Engine, overlay, Modo Tradução, voz, visão contínua, memória, lembretes/scheduler, notícias, mixer
-de som, autostart,
+1026 testes (91% de cobertura) cobrindo orquestrador, ferramentas/permissões, Agent Engine (task
+loop), mouse/teclado, terminal controlado, navegador controlado, plugins, OCR estruturado,
+Translation Engine, overlay, Modo Tradução, voz, visão contínua, memória, lembretes/scheduler,
+notícias, mixer de som, autostart,
 pesquisa em segundo plano, Modo Nerd, tela de Aplicativos, sprites/animação, estado
 funcional/emoção, diagnóstico, atividade, configuração, EventBus, confirmação de permissão e
 segurança dedicada. Roda automaticamente a cada push/PR (ver badge no topo).
@@ -230,11 +235,10 @@ Silva está evoluindo de "conjunto de features" pra uma arquitetura de **Local A
 (Agent Core, Tool Registry, Scheduler, Visão Contínua, Emotion Engine, Agent Engine com loop
 multi-passo (com gatilho de chat), controle de mouse/teclado, terminal controlado, Modo Tradução
 com overlay, Memória em camadas com filtro de relevância, Privacy Center, Modos do Silva,
-Attention Budget, barge-in e Browser real (Playwright) já feitos acima). O que falta, em ordem:
+Attention Budget, barge-in, Browser real (Playwright) e Plugins já feitos acima). O que falta,
+em ordem:
 
 - **RAG local (documentos/código)**: mencionado como preparação futura na Memória em camadas —
   precisa de indexação/chunking/busca próprios, deliberadamente deixado fora por enquanto.
-- **Plugins**: nenhuma estrutura de plugin existe ainda — planejado como interface simples
-  (`plugins/discord/`, `plugins/spotify/`, etc.), não uma prioridade imediata.
 - **Empacotamento**: hoje roda só via `install.bat`/`run.bat` + Python — gerar um instalador
   (`Silva-Setup.exe`) fica pra depois, sem prioridade sobre o resto.

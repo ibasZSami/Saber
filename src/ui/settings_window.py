@@ -234,9 +234,15 @@ class SettingsWindow(QWidget):
         self.browser_control_chk.setToolTip(
             "Abre um Chromium de verdade (Playwright). Requer reiniciar a Silva para ligar ou desligar."
         )
+        self.plugins_chk = QCheckBox("Permitir plugins (pasta plugins/ — código Python de terceiros, sem sandbox)")
+        self.plugins_chk.setChecked(self.settings.get("plugins_enabled", False))
+        self.plugins_chk.setToolTip(
+            "Só ative se confiar na origem dos arquivos em plugins/. Requer reiniciar a Silva."
+        )
         agent_layout.addWidget(self.input_control_chk)
         agent_layout.addWidget(self.terminal_tool_chk)
         agent_layout.addWidget(self.browser_control_chk)
+        agent_layout.addWidget(self.plugins_chk)
 
         agent_layout.addWidget(QLabel(
             "Programas que a Silva pode rodar no terminal (nada fora desta lista\n"
@@ -443,6 +449,7 @@ class SettingsWindow(QWidget):
             self.terminal_tool_manager.allowlist.clear()
             self.terminal_tool_manager.allowlist.update(self.terminal_allowlist)
         self.settings.set("browser_control_enabled", self.browser_control_chk.isChecked())
+        self.settings.set("plugins_enabled", self.plugins_chk.isChecked())
         self.close()
 
     def _update_mode_tooltip(self, label: str):

@@ -300,6 +300,37 @@ autoridade do `is_direct_input`). "para de falar"/"cala a boca"/"fica
 quieta"/"silêncio" fazem o mesmo por texto — útil principalmente na janela
 de chat, que não tem áudio pra interromper naturalmente.
 
+## Plugins
+
+`src/core/plugin_system.py` (`PluginManager`) — mecanismo de extensão
+mínimo, **desligado por padrão** (`plugins_enabled`). Um plugin é um único
+arquivo `.py` em `plugins/` com uma função `register(context)`; `context`
+dá acesso a `register_tool` (registra um `ToolSpec` de verdade no mesmo
+`ToolRegistry` que toda ferramenta nativa usa — passa pelo mesmo
+CONFIRM/allowlist/política, sem atalho), `event_bus` e `settings`.
+
+**Não é sandbox** — a função `dispatch` de um plugin é código Python comum
+rodando no mesmo processo, sem as travas que `run_terminal_tool`/
+`browser_navigate` constroem por conta própria (sem shell, allowlist
+própria, etc.), a menos que o autor do plugin escolha replicar isso. A
+única fronteira de segurança real é o interruptor mestre — nada em
+`plugins/` roda até o usuário ligar explicitamente. Um plugin quebrado
+(erro de sintaxe, exceção no `register`, sem a função) nunca derruba o
+resto — só aquele arquivo fica de fora, log do erro.
+
+**Limitação conhecida**: uma ferramenta de plugin é automaticamente vista
+pelo Agent Engine (que monta seu prompt dinamicamente a partir do
+`ToolRegistry` via `as_tools_schema(dispatchable_only=True)`), mas **não**
+pelo chat de um passo só — o `SYSTEM_PROMPT` conversacional é um texto
+estático (ver `src/ai/prompts.py`) que precisa listar cada ação
+manualmente, e não tem como saber de antemão o nome de uma ferramenta que
+um plugin de terceiros vai criar. Corrigir isso exigiria montar o
+`SYSTEM_PROMPT` dinamicamente a partir do registry — mudança maior,
+deixada de fora desta passada.
+
+Exemplo funcional em `plugins/example_dice.py` (ferramenta `roll_dice`);
+guia completo em `plugins/README.md`.
+
 ## Observabilidade local
 
 - `ActivityLog` (`src/core/activity_log.py`): histórico amigável de ações

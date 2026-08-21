@@ -1,4 +1,5 @@
 import logging
+import os
 import threading
 import time
 from datetime import datetime
@@ -26,6 +27,7 @@ from src.core.agent_engine import AgentEngine
 from src.desktop.input_control import InputController
 from src.desktop.terminal_tool import TerminalToolManager
 from src.desktop.browser_control import BrowserController
+from src.core.plugin_system import PluginManager
 from src.core.translation_mode import TranslationMode, TranslationModeState
 from src.vision.translation_engine import TranslationEngine
 from src.memory.database import Database
@@ -349,6 +351,15 @@ class CompanionOrchestrator:
         self.agent_core = AgentCore(
             self.tool_registry, self.event_bus, confirm_fn=self.confirm_fn, policy_manager=self.policy_manager,
         )
+
+        # Plugins — off by default (arbitrary Python code from disk, see
+        # src/core/plugin_system.py's own security note). Loaded last, once
+        # tool_registry/event_bus/settings all exist for a plugin's
+        # register(context) to actually use.
+        plugins_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "plugins")
+        self.plugin_manager = PluginManager(plugins_dir, self.tool_registry, self.event_bus, self.settings)
+        if self.settings.get("plugins_enabled", False):
+            self.plugin_manager.load_all()
 
         # Agent Engine (FASE 2/10) — multi-step goal execution (OBSERVAR/
         # DECIDIR/AGIR/VERIFICAR/REPETIR), reusing this same agent_core so a
