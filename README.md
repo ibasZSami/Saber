@@ -45,6 +45,13 @@ vez em quando (inclusive notícias reais), e tem controle real e permissionado s
   key) + resumo pela IA baseado só nos resultados reais (nunca inventa — se não achar nada, diz
   isso claramente). Não trava a conversa: responde na hora ("pode deixar, já te aviso") e, quando
   a busca termina, a Silva anuncia o resultado sozinha, na própria voz.
+- **Lembretes/timers** ("me lembra em 30 minutos de tirar o bolo", "às 18h me avisa", "todo dia
+  às 9h me lembra de..."): agendados localmente e persistidos, sobrevivem a reiniciar o app.
+  Também disparável pela própria IA (ação `create_reminder`) quando o pedido não bate com a
+  frase determinística exata.
+- **Emoção separada de estado funcional**: a expressão da Silva (feliz, triste, brava, animada...)
+  é independente do que ela está literalmente fazendo (pensando, jogando, trabalhando) — uma
+  reação emocional da IA não sobrescreve mais o sprite de "Silva jogando", por exemplo.
 
 ### Visão de Tela
 - Captura sob demanda (nunca grava nada em disco) e envia como imagem só quando a mensagem
@@ -52,6 +59,9 @@ vez em quando (inclusive notícias reais), e tem controle real e permissionado s
   "minha tela") — não em toda mensagem.
 - Monitoramento periódico de contexto usa só **diff matemático de pixels** (`mss`), sem enviar
   imagem nenhuma, exceto quando explicitamente solicitado.
+- **Contexto de tela estruturado e com prazo de validade**: o prompt recebe janela ativa +
+  categoria + "há quantos segundos" essa leitura foi feita — uma leitura velha nunca é
+  apresentada à IA como se fosse a tela atual.
 - **Tradução sob demanda** ("Traduz isso"): OCR via Tesseract. Requer o
   [Tesseract-OCR](https://github.com/UB-Mannheim/tesseract) instalado no sistema
   (`winget install --id UB-Mannheim.TesseractOCR -e`) — binário externo, não é dependência Python.
@@ -148,30 +158,33 @@ voz e permissões iniciais.
 pytest tests/ --cov=src --cov-report=term-missing
 ```
 
-575 testes cobrindo orquestrador, ferramentas/permissões, voz, visão, memória, notícias,
-mixer de som, autostart, pesquisa em segundo plano, Modo Nerd, tela de Aplicativos, sprites/
-animação, configuração, EventBus, confirmação de permissão e segurança dedicada. Roda
-automaticamente a cada push/PR (ver badge no topo).
+690 testes cobrindo orquestrador, ferramentas/permissões, voz, visão contínua, memória,
+lembretes/scheduler, notícias, mixer de som, autostart, pesquisa em segundo plano, Modo Nerd,
+tela de Aplicativos, sprites/animação, estado funcional/emoção, diagnóstico, atividade,
+configuração, EventBus, confirmação de permissão e segurança dedicada. Roda automaticamente a
+cada push/PR (ver badge no topo).
+
+Documentação técnica (arquitetura, segurança, padrões de teste) em [`docs/`](docs/).
 
 ---
 
 ## 🗺️ Roadmap — o que falta
 
 Silva está evoluindo de "conjunto de features" pra uma arquitetura de **Local AI Desktop Agent**
-(Agent Core, Tool Registry já feito acima). O que falta, em ordem:
+(Agent Core, Tool Registry, Scheduler, Visão Contínua e Emotion Engine já feitos acima). O que
+falta, em ordem:
 
-- **Visão contínua de verdade**: hoje é liga/desliga por palavra-chave. Falta um buffer circular
-  com TTL, modos explícitos (OFF/CONTEXT/AWARENESS/ACTIVE), e diferenciação entre contexto
-  atual/recente/expirado — sem nunca mandar pro modelo uma leitura de tela velha como se fosse
-  atual.
 - **Memória em camadas**: hoje é só key/value + histórico plano. Falta separar working/short-term/
   long-term, filtrar relevância antes de montar o prompt (hoje tudo entra sempre), e preparar
   espaço pra RAG local (documentos/código) sem dependência pesada obrigatória.
-- **Persona/Emotion Engine separados**: personalidade hoje vive inteira dentro do prompt de
-  sistema; emoção e estado funcional (pensando/falando) ainda dividem o mesmo campo de animação.
-- **Scheduler**: nenhum conceito de lembrete/timer/tarefa recorrente existe ainda
-  ("me lembra em 30 minutos", "às 18h me avisa").
-- **Documentação**: sem `docs/` detalhado (arquitetura, segurança, cada subsistema) ainda.
+- **Privacy Center**: tela dedicada mostrando o que a Silva vê/ouve/lembra num só lugar (hoje
+  espalhado entre Configurações → Visão/Voz e a aba Atividade).
+- **Modos do Silva**: perfis prontos (Silencioso/Trabalho/Companhia/Foco/Privacidade/Jogo) que
+  ajustam várias configurações de uma vez, em vez de mexer em cada toggle separado.
+- **Attention Budget**: controle mais inteligente da frequência de fala espontânea, além dos
+  timers fixos atuais.
+- **Voice UX / barge-in**: interromper a Silva no meio da fala não existe ainda — precisa de um
+  handle real de cancelamento no ciclo de vida do TTS.
 - **Plugins**: nenhuma estrutura de plugin existe ainda — planejado como interface simples
   (`plugins/discord/`, `plugins/spotify/`, etc.), não uma prioridade imediata.
 - **Empacotamento**: hoje roda só via `install.bat`/`run.bat` + Python — gerar um instalador
