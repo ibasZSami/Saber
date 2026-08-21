@@ -194,10 +194,39 @@ Antes da FASE 13 os dois compartilhavam um único campo (`"animation"`), o que
 causava um funcional ser sobrescrito por uma reação emocional da IA (ou
 vice-versa) sem aviso.
 
-## Memória e agendamento
+## Memória em camadas
 
-- `MemoryManager` + `Database` (`src/memory/`): memória chave/valor de longo
-  prazo e histórico de conversa, em SQLite local.
+Três camadas conceituais, cada uma já existente mas agora nomeadas
+explicitamente:
+
+- **Working** (`ContextManager`, `src/ai/context.py`): a mensagem atual +
+  contexto de janela/tela — vive só durante a montagem daquele prompt,
+  nunca persiste.
+- **Short-term** (`MemoryManager.get_history()`): as últimas N trocas da
+  conversa (SQLite, `conversation_history`) — dá continuidade sem exigir
+  que o usuário peça pra guardar algo explicitamente.
+- **Long-term** (`MemoryManager.get_memories()`, tabela `long_term_memory`):
+  fatos que o usuário pediu pra guardar de verdade ("Guarde isso",
+  "Esqueça isso") — sobrevive indefinidamente, entre sessões.
+
+**Filtro de relevância** (`src/memory/relevance.py`): antes desta mudança,
+toda memória de longo prazo entrava em **todo** prompt, sem exceção — com
+poucas memórias isso não pesa, mas cresce sem limite. Agora
+`select_relevant_memories()` só deixa passar memórias cujo texto realmente
+se relaciona com a mensagem atual (sobreposição de palavras + menção direta
+da chave), ordenadas por relevância, com um teto (`DEFAULT_MAX_MEMORIES =
+8`). Sem embeddings/vector store — decisão deliberada: isso é uma
+dependência real (qual store, como manter sincronizado com
+`remember`/`forget`) que merece sua própria etapa, não uma adição rápida
+aqui. Só se aplica ao caminho de mensagem real (`handle_user_message`) — o
+comentário espontâneo continua usando o conjunto completo, já que não tem
+uma mensagem específica pra comparar relevância.
+
+**RAG local (documentos/código)**: mencionado no roadmap original como
+preparação futura — deliberadamente **não implementado** nesta passada.
+Merece um design próprio (indexação, chunking, estratégia de busca) em vez
+de ser espremido numa mudança que já tinha outro foco.
+
 - `Scheduler` (`src/core/scheduler.py`) + `reminder_parser.py`: lembretes/
   timers ("me lembra em 30 minutos", "às 18h me avisa", recorrência diária),
   persistidos na mesma base SQLite, checados por um `QTimer` periódico.

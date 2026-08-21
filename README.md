@@ -36,7 +36,9 @@ vez em quando (inclusive notícias reais), e tem controle real e permissionado s
   no máximo 2 vezes antes de sair de rotação, pra não ficar repetindo o mesmo assunto.
 - **Memória de conversa correta**: tudo que a Silva fala — inclusive comentários espontâneos —
   entra no histórico, então perguntar "me conta mais sobre isso" depois funciona de verdade.
-- **Memória de longo prazo**: banco SQLite local ("Guarde isso", "Esqueça isso").
+- **Memória de longo prazo**: banco SQLite local ("Guarde isso", "Esqueça isso"). Só entra no
+  prompt a memória que tem a ver com o que você disse — filtro de relevância, não joga tudo que
+  já foi guardado em toda mensagem.
 - **Modo Nerd**: postura mais proativa (fala espontânea mais frequente), liga/desliga a qualquer
   momento por voz ou texto — "vira nerd" / "ativa o modo nerd" / "desliga o modo nerd". Resposta
   de confirmação é instantânea e determinística (não passa pela IA), e o personagem assume uma
@@ -195,7 +197,7 @@ voz e permissões iniciais.
 pytest tests/ --cov=src --cov-report=term-missing
 ```
 
-887 testes (91% de cobertura) cobrindo orquestrador, ferramentas/permissões, Agent Engine (task
+900 testes (91% de cobertura) cobrindo orquestrador, ferramentas/permissões, Agent Engine (task
 loop), mouse/teclado, terminal controlado, OCR estruturado, Translation Engine, overlay, Modo
 Tradução, voz, visão contínua, memória, lembretes/scheduler, notícias, mixer de som, autostart,
 pesquisa em segundo plano, Modo Nerd, tela de Aplicativos, sprites/animação, estado
@@ -210,12 +212,11 @@ Documentação técnica (arquitetura, segurança, padrões de teste) em [`docs/`
 
 Silva está evoluindo de "conjunto de features" pra uma arquitetura de **Local AI Desktop Agent**
 (Agent Core, Tool Registry, Scheduler, Visão Contínua, Emotion Engine, Agent Engine com loop
-multi-passo, controle de mouse/teclado, terminal controlado e Modo Tradução com overlay já feitos
-acima). O que falta, em ordem:
+multi-passo (com gatilho de chat), controle de mouse/teclado, terminal controlado, Modo Tradução
+com overlay e Memória em camadas com filtro de relevância já feitos acima). O que falta, em ordem:
 
-- **Memória em camadas**: hoje é só key/value + histórico plano. Falta separar working/short-term/
-  long-term, filtrar relevância antes de montar o prompt (hoje tudo entra sempre), e preparar
-  espaço pra RAG local (documentos/código) sem dependência pesada obrigatória.
+- **RAG local (documentos/código)**: mencionado como preparação futura na Memória em camadas —
+  precisa de indexação/chunking/busca próprios, deliberadamente deixado fora por enquanto.
 - **Privacy Center**: tela dedicada mostrando o que a Silva vê/ouve/lembra num só lugar (hoje
   espalhado entre Configurações → Visão/Voz e a aba Atividade).
 - **Modos do Silva**: perfis prontos (Silencioso/Trabalho/Companhia/Foco/Privacidade/Jogo) que

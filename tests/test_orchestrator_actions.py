@@ -672,6 +672,58 @@ class TestHandleUserMessageErrorHandling:
         assert orch._last_interaction_time >= before
 
 
+class TestHandleUserMessageMemoryRelevance:
+    """"Memória em camadas" part 1 — every saved memory used to always enter
+    the prompt; now only ones relevant to the actual message do."""
+
+    def _bare_orchestrator(self):
+        import json
+        orch = CompanionOrchestrator.__new__(CompanionOrchestrator)
+        orch.event_bus = EventBus()
+        orch.state_manager = MagicMock()
+        orch.memory_manager = MagicMock()
+        orch.memory_manager.get_history.return_value = []
+        orch.context_manager = MagicMock()
+        orch.context_manager.build_prompt_context.return_value = "prompt"
+        orch.settings = FakeSettings(screen_monitoring_enabled=False, private_mode=True)
+        orch.screen_capture = MagicMock()
+        orch.ai_provider = MagicMock()
+        orch.ai_vision_provider = None
+        orch.action_manager = MagicMock()
+        orch.tts = MagicMock()
+        orch.system_audio_listener = MagicMock()
+        orch.translation_manager = MagicMock()
+        orch.nerd_mode_enabled = False
+        orch._last_interaction_time = 0.0
+        orch.agent_core = AgentCore(build_default_registry(orch.action_manager, orch.memory_manager), orch.event_bus)
+        orch.ai_provider.chat.return_value = json.dumps({
+            "speech": "oi!", "emotion": "HAPPY", "action": "Nenhuma", "action_param": ""
+        })
+        return orch
+
+    def test_relevant_memory_reaches_the_prompt(self, monkeypatch):
+        import threading
+        orch = self._bare_orchestrator()
+        orch.memory_manager.get_memories.return_value = {"cor favorita": "azul"}
+        monkeypatch.setattr(threading, "Thread", _SyncThread)
+
+        orch.handle_user_message("qual é minha cor favorita?")
+
+        sent_memories = orch.context_manager.build_prompt_context.call_args[0][0]
+        assert sent_memories == {"cor favorita": "azul"}
+
+    def test_unrelated_memory_is_left_out_of_the_prompt(self, monkeypatch):
+        import threading
+        orch = self._bare_orchestrator()
+        orch.memory_manager.get_memories.return_value = {"cor favorita": "azul"}
+        monkeypatch.setattr(threading, "Thread", _SyncThread)
+
+        orch.handle_user_message("que horas são?")
+
+        sent_memories = orch.context_manager.build_prompt_context.call_args[0][0]
+        assert sent_memories == {}
+
+
 class TestHandleUserMessageNerdShortCircuit:
     """A nerd mode toggle command must never reach the AI provider — it's a
     pure command with a deterministic reply, not a question."""

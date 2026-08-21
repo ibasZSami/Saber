@@ -56,6 +56,7 @@ from src.desktop.audio_mixer import AudioMixerManager
 from src.desktop.web_search import WebSearchProvider
 
 from src.memory.manager import MemoryManager
+from src.memory.relevance import select_relevant_memories
 from src.voice.tts import EdgeTTSProvider, Pyttsx3Provider, FallbackTTSProvider, DEFAULT_VOICE
 from src.voice.input import VoiceInput
 from src.voice.system_audio import SystemAudioListener
@@ -892,7 +893,13 @@ class CompanionOrchestrator:
                     self._maybe_activate_system_audio_command(user_text)
                     self._maybe_toggle_spontaneous_talk(user_text)
 
-                memories = self.memory_manager.get_memories()
+                # "Memória em camadas" part 1: every saved memory used to
+                # always enter the prompt regardless of relevance — now only
+                # memories that actually relate to what the user just said
+                # do (see src/memory/relevance.py). Real user text only —
+                # never applied to the spontaneous-comment path, which has
+                # no specific message to score relevance against.
+                memories = select_relevant_memories(self.memory_manager.get_memories(), user_text)
                 history = self.memory_manager.get_history(limit=6)
 
                 # Real screen vision: attach a live screenshot only when enabled, not in
