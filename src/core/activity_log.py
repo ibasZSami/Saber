@@ -42,6 +42,11 @@ def _describe_action_result(action, action_param, rejected: bool) -> str:
         app = action_param.get("application", "?") if isinstance(action_param, dict) else "?"
         level = action_param.get("level", "?") if isinstance(action_param, dict) else "?"
         return f'{"Não ajustou" if rejected else "Ajustou"} o volume de "{app}" para {level}%.'
+    if action in ("mouse_click", "mouse_move", "type_text", "press_key"):
+        return f'{"Não controlou" if rejected else "Controlou"} o mouse/teclado ({action}).'
+    if action == "run_terminal_tool":
+        name = action_param.get("name", "?") if isinstance(action_param, dict) else "?"
+        return f'{"Não rodou" if rejected else "Rodou"} "{name}" no terminal.'
     return f'{"Não executou" if rejected else "Executou"} a ação "{action}".'
 
 

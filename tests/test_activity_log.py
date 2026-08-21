@@ -33,6 +33,18 @@ class TestActionEvents:
         bus.emit("ACTION_EXECUTED", action="set_app_volume", action_param={"application": "spotify", "level": 40})
         assert 'volume de "spotify" para 40%' in log.entries()[-1].text
 
+    def test_mouse_click_is_logged(self):
+        bus = _bus()
+        log = ActivityLog(bus)
+        bus.emit("ACTION_EXECUTED", action="mouse_click", action_param={"x": 1, "y": 2})
+        assert "mouse_click" in log.entries()[-1].text
+
+    def test_run_terminal_tool_is_logged_with_the_binary_name(self):
+        bus = _bus()
+        log = ActivityLog(bus)
+        bus.emit("ACTION_EXECUTED", action="run_terminal_tool", action_param={"name": "nmap", "args": "-sV"})
+        assert '"nmap"' in log.entries()[-1].text
+
     def test_unknown_action_gets_generic_fallback(self):
         bus = _bus()
         log = ActivityLog(bus)

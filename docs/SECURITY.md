@@ -13,7 +13,8 @@ sensível.
   esquecer memória, agendar um lembrete, iniciar uma pesquisa em segundo
   plano, observar/traduzir a tela.
 - **CONFIRM** — pede confirmação do usuário (ou usa uma política já salva):
-  abrir/fechar aplicativo, abrir URL, ajustar volume de um app.
+  abrir/fechar aplicativo, abrir URL, ajustar volume de um app, controle de
+  mouse/teclado, rodar ferramenta de terminal.
 - **DANGEROUS** — reservado, nenhuma ferramenta usa ainda. Qualquer coisa
   marcada assim seria recusada por padrão (fail-safe) até ganhar uso real.
 
@@ -86,6 +87,30 @@ sucesso).
   voz do Silva.
 - `diagnostics.py` reporta só presença/ausência de chave configurada, nunca
   o valor.
+
+## Mouse/teclado e terminal (FASE 3) — a camada extra de opt-in
+
+Estas duas categorias somam uma proteção que nenhuma outra ferramenta tem:
+um **interruptor mestre** em Configurações → Agente
+(`input_control_enabled` / `terminal_tool_enabled`), **desligado por
+padrão**. Enquanto desligado, o objeto que faria o trabalho
+(`InputController`/`TerminalToolManager`) nem é construído no
+`CompanionOrchestrator.__init__` — a ferramenta correspondente fica sem
+`dispatch` no `ToolRegistry`, então mesmo que a IA "decida" chamá-la, nada
+acontece (mesmo caminho seguro de "ação desconhecida" que qualquer nome de
+ferramenta inválido já usa). Isso é mais forte que só recusar no diálogo:
+a capacidade genuinamente não existe até o usuário optar por ela.
+
+Com o interruptor ligado, tier CONFIRM ainda se aplica normalmente — cada
+clique/tecla/execução de terminal passa pelo fluxo de confirmação descrito
+acima, podendo virar política ALWAYS/SESSION salva como qualquer outra ação
+CONFIRM.
+
+O terminal, além disso, tem sua própria allowlist (Configurações → Agente,
+**vazia por padrão** — nenhum binário roda até ser adicionado manualmente),
+nunca usa `shell=True`, valida argumentos contra caracteres de metasintaxe
+de shell, limita tempo de execução (30s) e tamanho de saída (4000
+caracteres), e cada execução é logada via `TERMINAL_TOOL_EXECUTED`.
 
 ## Testes de segurança dedicados
 

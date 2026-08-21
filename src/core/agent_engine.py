@@ -26,7 +26,6 @@ from src.ai.prompts import build_agent_system_prompt
 from src.core.agent_core import AgentCore
 from src.core.event_bus import EventBus
 from src.core.task_manager import TaskManager, TaskStatus
-from src.core.tool_registry import describe_tools
 
 # How many recent steps are included in the prompt each iteration — enough
 # for the AI to see it's stuck/making progress without the prompt growing
@@ -85,7 +84,12 @@ class AgentEngine:
                         on_finish(stop_reason, False)
                     return
 
-                system_prompt = build_agent_system_prompt(describe_tools())
+                # Only tools with a real dispatch handler wired — see
+                # ToolRegistry.as_tools_schema's dispatchable_only docstring.
+                # A tool gated off by a Settings master switch (mouse/
+                # keyboard, terminal) simply never appears here, same as it
+                # never appears for conversational chat actions either.
+                system_prompt = build_agent_system_prompt(self.agent_core.registry.as_tools_schema(dispatchable_only=True))
                 prompt = self._build_prompt(task)
                 raw = self.ai_provider.chat(prompt, system_prompt, [], image_base64=None)
                 parsed = parse_agent_response(raw)

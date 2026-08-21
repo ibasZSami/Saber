@@ -156,3 +156,9 @@ TASK_LOOP_RESUMED = "TASK_LOOP_RESUMED"
 TASK_LOOP_CANCELLED = "TASK_LOOP_CANCELLED"
 TASK_LOOP_COMPLETED = "TASK_LOOP_COMPLETED"
 TASK_LOOP_FAILED = "TASK_LOOP_FAILED"
+
+# Terminal tool (FASE 3, src/desktop/terminal_tool.py) — carries the rich
+# result (output/error) that the generic ACTION_EXECUTED/ACTION_REJECTED
+# events don't, since those stay bool-only for every tool by design (see
+# AgentCore.execute). kwargs: name, args, success, output, error.
+TERMINAL_TOOL_EXECUTED = "TERMINAL_TOOL_EXECUTED"

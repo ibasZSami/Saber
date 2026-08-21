@@ -22,10 +22,19 @@ def _pitch_str_to_hz(pitch_str: str) -> int:
         return 0
 
 class SettingsWindow(QWidget):
-    def __init__(self, settings: Settings, permission_manager=None, policy_manager=None, activity_log=None):
+    def __init__(
+        self, settings: Settings, permission_manager=None, policy_manager=None, activity_log=None,
+        terminal_tool_manager=None,
+    ):
         super().__init__()
         self.settings = settings
         self.activity_log = activity_log
+        # Lets a saved terminal allowlist change take effect immediately, same
+        # reasoning as permission_manager below for the app allowlist. Whether
+        # mouse/keyboard or terminal tools are enabled AT ALL (the master
+        # switches) still needs a restart — those gate whether the manager
+        # objects get constructed in orchestrator.__init__ in the first place.
+        self.terminal_tool_manager = terminal_tool_manager
         # Lets a saved allowlist change take effect immediately — without this,
         # DesktopActionManager keeps using the snapshot PermissionManager took
         # at orchestrator startup until the app is restarted.
@@ -176,7 +185,55 @@ class SettingsWindow(QWidget):
         apps_layout.addWidget(remove_btn)
         tabs.addTab(apps_tab, "Aplicativos")
 
-        # Tab 6: Diagnóstico — checagem local, offline, do que a Silva depende
+        # Tab 6: Agente — controles de maior risco do Agent Engine (FASE 2/3):
+        # mouse/teclado e terminal controlado, os dois DESLIGADOS por padrão.
+        # Nada aqui roda sem o interruptor mestre ligado, mesmo que a IA peça
+        # — ver src/core/orchestrator.py e docs/SECURITY.md.
+        agent_tab = QWidget()
+        agent_layout = QVBoxLayout(agent_tab)
+        agent_layout.addWidget(QLabel(
+            "Recursos de maior risco: controle de mouse/teclado e execução de\n"
+            "programas de terminal pré-aprovados. Desligados por padrão."
+        ))
+        self.input_control_chk = QCheckBox("Permitir controle de mouse/teclado (sempre pede confirmação)")
+        self.input_control_chk.setChecked(self.settings.get("input_control_enabled", False))
+        self.input_control_chk.setToolTip("Requer reiniciar a Silva para ligar ou desligar de verdade.")
+        self.terminal_tool_chk = QCheckBox("Permitir rodar programas de terminal pré-aprovados (sempre pede confirmação)")
+        self.terminal_tool_chk.setChecked(self.settings.get("terminal_tool_enabled", False))
+        self.terminal_tool_chk.setToolTip("Requer reiniciar a Silva para ligar ou desligar de verdade.")
+        agent_layout.addWidget(self.input_control_chk)
+        agent_layout.addWidget(self.terminal_tool_chk)
+
+        agent_layout.addWidget(QLabel(
+            "Programas que a Silva pode rodar no terminal (nada fora desta lista\n"
+            "roda, mesmo com o interruptor acima ligado)."
+        ))
+        self.terminal_allowlist = dict(self.settings.get("terminal_allowlist", {}))
+        self.terminal_list = QListWidget()
+        self._refresh_terminal_list()
+        agent_layout.addWidget(self.terminal_list)
+
+        terminal_add_row = QHBoxLayout()
+        self.terminal_name_input = QLineEdit()
+        self.terminal_name_input.setPlaceholderText("nome (ex: nmap)")
+        self.terminal_path_input = QLineEdit()
+        self.terminal_path_input.setPlaceholderText("caminho do .exe")
+        terminal_browse_btn = QPushButton("Procurar...")
+        terminal_browse_btn.clicked.connect(self._browse_for_terminal_path)
+        terminal_add_btn = QPushButton("Adicionar")
+        terminal_add_btn.clicked.connect(self._add_terminal_tool)
+        terminal_add_row.addWidget(self.terminal_name_input)
+        terminal_add_row.addWidget(self.terminal_path_input)
+        terminal_add_row.addWidget(terminal_browse_btn)
+        terminal_add_row.addWidget(terminal_add_btn)
+        agent_layout.addLayout(terminal_add_row)
+
+        terminal_remove_btn = QPushButton("Remover selecionado")
+        terminal_remove_btn.clicked.connect(self._remove_terminal_tool)
+        agent_layout.addWidget(terminal_remove_btn)
+        tabs.addTab(agent_tab, "Agente")
+
+        # Tab 7: Diagnóstico — checagem local, offline, do que a Silva depende
         # (Python, Qt, áudio, Whisper, Tesseract, API, assets, config, allowlist,
         # autostart). Nunca inclui a chave de API de verdade, só se ela existe.
         diag_tab = QWidget()
@@ -200,7 +257,7 @@ class SettingsWindow(QWidget):
         diag_layout.addLayout(diag_btn_row)
         tabs.addTab(diag_tab, "Diagnóstico")
 
-        # Tab 7: Atividade — histórico amigável do que a Silva fez (abriu app,
+        # Tab 8: Atividade — histórico amigável do que a Silva fez (abriu app,
         # guardou memória, concluiu pesquisa...), sem exigir olhar o log de
         # depuração. Só existe em memória (não sobrevive a reiniciar o app).
         activity_tab = QWidget()
@@ -260,6 +317,37 @@ class SettingsWindow(QWidget):
             self.policy_manager.revoke("close_application", name)
         self._refresh_app_list()
 
+    def _refresh_terminal_list(self):
+        self.terminal_list.clear()
+        for name, path in sorted(self.terminal_allowlist.items()):
+            item = QListWidgetItem(f"{name} → {path}")
+            item.setData(Qt.UserRole, name)
+            self.terminal_list.addItem(item)
+
+    def _browse_for_terminal_path(self):
+        path, _ = QFileDialog.getOpenFileName(self, "Selecione o executável", "", "Executáveis (*.exe)")
+        if path:
+            self.terminal_path_input.setText(path)
+
+    def _add_terminal_tool(self):
+        name = self.terminal_name_input.text().strip().lower()
+        path = self.terminal_path_input.text().strip()
+        if not name or not path:
+            QMessageBox.warning(self, "Agente", "Preencha o nome e o caminho do executável.")
+            return
+        self.terminal_allowlist[name] = path
+        self._refresh_terminal_list()
+        self.terminal_name_input.clear()
+        self.terminal_path_input.clear()
+
+    def _remove_terminal_tool(self):
+        item = self.terminal_list.currentItem()
+        if not item:
+            return
+        name = item.data(Qt.UserRole)
+        self.terminal_allowlist.pop(name, None)
+        self._refresh_terminal_list()
+
     def _save(self):
         self.settings.set("character_name", self.name_input.text().strip())
         self.settings.set("always_on_top", self.always_on_top_chk.isChecked())
@@ -286,6 +374,12 @@ class SettingsWindow(QWidget):
         if self.permission_manager is not None:
             self.permission_manager.allowlist.clear()
             self.permission_manager.allowlist.update(self.allowlist)
+        self.settings.set("input_control_enabled", self.input_control_chk.isChecked())
+        self.settings.set("terminal_tool_enabled", self.terminal_tool_chk.isChecked())
+        self.settings.set("terminal_allowlist", self.terminal_allowlist)
+        if self.terminal_tool_manager is not None:
+            self.terminal_tool_manager.allowlist.clear()
+            self.terminal_tool_manager.allowlist.update(self.terminal_allowlist)
         self.close()
 
     def _refresh_activity_log(self):

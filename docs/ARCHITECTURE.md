@@ -99,10 +99,39 @@ OBSERVAR (histórico de passos) → DECIDIR (1 chamada à IA) → AGIR (AgentCor
   CONFIRM dentro de uma tarefa multi-passo ainda pede confirmação de
   verdade, sem atalho.
 
-Ainda não conectado a um comando de chat (`"faça X"` não dispara isso
-ainda) — é intencional: construído e testado primeiro, o gatilho de
-invocação entra junto da FASE 3, quando existem ferramentas de fato para
-o loop usar além do que o chat normal já cobre.
+Ainda não conectado a um comando de chat multi-passo dedicado (`"faça X"`
+como objetivo autônomo não dispara isso ainda) — fica para uma decisão
+futura. As ferramentas abaixo (FASE 3) já funcionam também no chat normal
+de um passo só, via `AgentCore` diretamente.
+
+## Ferramentas de maior risco (FASE 3): mouse/teclado e terminal
+
+Duas categorias novas, cada uma atrás do próprio interruptor mestre em
+Configurações → Agente (`input_control_enabled` / `terminal_tool_enabled`),
+**desligadas por padrão**. Enquanto desligadas, `build_default_registry`
+nem registra um dispatch pra elas — a IA não só não consegue executar, ela
+não é sequer informada de que a ferramenta existe (ver
+`ToolRegistry.as_tools_schema(dispatchable_only=True)`, usado pelo Agent
+Engine).
+
+- **`src/desktop/input_control.py`** (`InputController`, via `pynput`):
+  `click`/`move`/`type_text`/`press_key`. Tier **CONFIRM** — cada uso pede
+  confirmação real (ou usa uma política ALWAYS/SESSION já salva), igual
+  abrir um aplicativo.
+- **`src/desktop/terminal_tool.py`** (`TerminalToolManager`): roda só
+  binários de uma allowlist própria (Configurações → Agente, **vazia por
+  padrão**), sem shell (`subprocess.run(..., shell=False)`, argumentos como
+  lista de verdade), timeout de 30s, saída capada em 4000 caracteres,
+  caracteres de metasintaxe de shell rejeitados nos argumentos mesmo sem
+  shell interpretá-los. Emite `TERMINAL_TOOL_EXECUTED` com a saída
+  completa — separado do `ACTION_EXECUTED` genérico (que continua só bool)
+  porque um simples sucesso/fracasso perderia o resultado real de rodar
+  algo como Nmap.
+
+"Browser" do pedido original é coberto pelas ferramentas já existentes
+(`open_url`/`search_web`) combinadas com mouse/teclado quando habilitado —
+automação de DOM (Playwright/Selenium) não foi adicionada nesta fase:
+dependência pesada, deixada como decisão futura explícita.
 
 ## Visão (`src/vision/`)
 

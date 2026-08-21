@@ -32,6 +32,11 @@ class TestBuildDefaultRegistry:
         assert registry.tier_of("remember") == PermissionTier.SAFE
         assert registry.tier_of("forget_memory") == PermissionTier.SAFE
         assert registry.tier_of("set_app_volume") == PermissionTier.CONFIRM
+        assert registry.tier_of("mouse_click") == PermissionTier.CONFIRM
+        assert registry.tier_of("mouse_move") == PermissionTier.CONFIRM
+        assert registry.tier_of("type_text") == PermissionTier.CONFIRM
+        assert registry.tier_of("press_key") == PermissionTier.CONFIRM
+        assert registry.tier_of("run_terminal_tool") == PermissionTier.CONFIRM
 
     def test_open_application_dispatch_calls_action_manager(self):
         action_manager, memory_manager = self._managers()
@@ -292,6 +297,168 @@ class TestCreateReminderDispatch:
         assert registry.get("create_reminder").dispatch is None
 
 
+class TestMouseAndKeyboardDispatch:
+    def _registry(self):
+        action_manager, memory_manager = MagicMock(), MagicMock()
+        input_controller = MagicMock()
+        registry = build_default_registry(action_manager, memory_manager, input_controller=input_controller)
+        return registry, input_controller
+
+    def test_mouse_click_dispatch_calls_input_controller(self):
+        registry, input_controller = self._registry()
+        input_controller.click.return_value = True
+
+        result = registry.get("mouse_click").dispatch({"x": 100, "y": 200, "button": "right"})
+
+        assert result is True
+        input_controller.click.assert_called_once_with(100, 200, button="right")
+
+    def test_mouse_click_defaults_to_left_button(self):
+        registry, input_controller = self._registry()
+        registry.get("mouse_click").dispatch({"x": 10, "y": 20})
+        input_controller.click.assert_called_once_with(10, 20, button="left")
+
+    def test_mouse_click_rejects_out_of_range_coordinates(self):
+        registry, input_controller = self._registry()
+        result = registry.get("mouse_click").dispatch({"x": 999999, "y": 20})
+        assert result is False
+        input_controller.click.assert_not_called()
+
+    def test_mouse_click_rejects_non_numeric_coordinates(self):
+        registry, input_controller = self._registry()
+        result = registry.get("mouse_click").dispatch({"x": "abc", "y": 20})
+        assert result is False
+        input_controller.click.assert_not_called()
+
+    def test_mouse_click_rejects_non_dict_param(self):
+        registry, input_controller = self._registry()
+        result = registry.get("mouse_click").dispatch("100,200")
+        assert result is False
+        input_controller.click.assert_not_called()
+
+    def test_mouse_move_dispatch_calls_input_controller(self):
+        registry, input_controller = self._registry()
+        input_controller.move.return_value = True
+        result = registry.get("mouse_move").dispatch({"x": 5, "y": 6})
+        assert result is True
+        input_controller.move.assert_called_once_with(5, 6)
+
+    def test_type_text_dispatch_calls_input_controller(self):
+        registry, input_controller = self._registry()
+        input_controller.type_text.return_value = True
+        result = registry.get("type_text").dispatch({"text": "olá"})
+        assert result is True
+        input_controller.type_text.assert_called_once_with("olá")
+
+    def test_type_text_rejects_empty_string(self):
+        registry, input_controller = self._registry()
+        result = registry.get("type_text").dispatch({"text": ""})
+        assert result is False
+        input_controller.type_text.assert_not_called()
+
+    def test_press_key_dispatch_calls_input_controller(self):
+        registry, input_controller = self._registry()
+        input_controller.press_key.return_value = True
+        result = registry.get("press_key").dispatch({"key": "Enter"})
+        assert result is True
+        input_controller.press_key.assert_called_once_with("Enter")
+
+    def test_press_key_rejects_missing_key(self):
+        registry, input_controller = self._registry()
+        result = registry.get("press_key").dispatch({})
+        assert result is False
+        input_controller.press_key.assert_not_called()
+
+    def test_no_dispatch_when_input_controller_not_provided(self):
+        action_manager, memory_manager = MagicMock(), MagicMock()
+        registry = build_default_registry(action_manager, memory_manager)
+        assert registry.get("mouse_click").dispatch is None
+        assert registry.get("mouse_move").dispatch is None
+        assert registry.get("type_text").dispatch is None
+        assert registry.get("press_key").dispatch is None
+
+
+class TestRunTerminalToolDispatch:
+    def _registry(self):
+        action_manager, memory_manager = MagicMock(), MagicMock()
+        terminal_tool_manager = MagicMock()
+        registry = build_default_registry(action_manager, memory_manager, terminal_tool_manager=terminal_tool_manager)
+        return registry, terminal_tool_manager
+
+    def test_dispatch_calls_terminal_tool_manager(self):
+        registry, terminal_tool_manager = self._registry()
+        terminal_tool_manager.run.return_value = {"success": True, "output": "ok", "error": None}
+
+        result = registry.get("run_terminal_tool").dispatch({"name": "nmap", "args": "-sV localhost"})
+
+        assert result is True
+        terminal_tool_manager.run.assert_called_once_with("nmap", "-sV localhost")
+
+    def test_dispatch_defaults_args_to_empty_string(self):
+        registry, terminal_tool_manager = self._registry()
+        terminal_tool_manager.run.return_value = {"success": True, "output": "", "error": None}
+        registry.get("run_terminal_tool").dispatch({"name": "nmap"})
+        terminal_tool_manager.run.assert_called_once_with("nmap", "")
+
+    def test_dispatch_reflects_failure(self):
+        registry, terminal_tool_manager = self._registry()
+        terminal_tool_manager.run.return_value = {"success": False, "output": "", "error": "não permitido"}
+        result = registry.get("run_terminal_tool").dispatch({"name": "not_allowed"})
+        assert result is False
+
+    def test_dispatch_rejects_missing_name(self):
+        registry, terminal_tool_manager = self._registry()
+        result = registry.get("run_terminal_tool").dispatch({"args": "x"})
+        assert result is False
+        terminal_tool_manager.run.assert_not_called()
+
+    def test_dispatch_rejects_non_dict_param(self):
+        registry, terminal_tool_manager = self._registry()
+        result = registry.get("run_terminal_tool").dispatch("nmap")
+        assert result is False
+        terminal_tool_manager.run.assert_not_called()
+
+    def test_no_dispatch_when_terminal_tool_manager_not_provided(self):
+        action_manager, memory_manager = MagicMock(), MagicMock()
+        registry = build_default_registry(action_manager, memory_manager)
+        assert registry.get("run_terminal_tool").dispatch is None
+
+
+class TestAsToolsSchemaDispatchableOnly:
+    def test_excludes_tools_without_a_dispatch_handler(self):
+        action_manager, memory_manager = MagicMock(), MagicMock()
+        registry = build_default_registry(action_manager, memory_manager)  # no scheduler/input/terminal
+
+        names = {entry["name"] for entry in registry.as_tools_schema(dispatchable_only=True)}
+
+        assert "search_web" in names
+        assert "observe_screen" not in names  # never has a dispatch handler
+        assert "create_reminder" not in names  # no scheduler provided
+        assert "mouse_click" not in names  # no input_controller provided
+        assert "run_terminal_tool" not in names  # no terminal_tool_manager provided
+
+    def test_includes_everything_when_all_dependencies_are_wired(self):
+        action_manager, memory_manager = MagicMock(), MagicMock()
+        registry = build_default_registry(
+            action_manager, memory_manager,
+            scheduler=MagicMock(), input_controller=MagicMock(), terminal_tool_manager=MagicMock(),
+        )
+
+        names = {entry["name"] for entry in registry.as_tools_schema(dispatchable_only=True)}
+
+        assert "mouse_click" in names
+        assert "create_reminder" in names
+        assert "run_terminal_tool" in names
+        assert "observe_screen" not in names  # still descriptive-only regardless
+
+    def test_default_false_keeps_every_tool(self):
+        action_manager, memory_manager = MagicMock(), MagicMock()
+        registry = build_default_registry(action_manager, memory_manager)
+        names = {entry["name"] for entry in registry.as_tools_schema()}
+        assert "mouse_click" in names
+        assert "observe_screen" in names
+
+
 class TestDescribeTools:
     def test_returns_every_tool_with_name_and_description(self):
         schema = describe_tools()
@@ -299,7 +466,7 @@ class TestDescribeTools:
         assert names == {
             "observe_screen", "translate_screen", "open_application", "close_application",
             "open_url", "search_web", "remember", "forget_memory", "set_app_volume", "research_topic",
-            "create_reminder",
+            "create_reminder", "mouse_click", "mouse_move", "type_text", "press_key", "run_terminal_tool",
         }
         assert all("description" in entry for entry in schema)
 

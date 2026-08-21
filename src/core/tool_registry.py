@@ -36,12 +36,22 @@ class ToolRegistry:
         spec = self._tools.get(name)
         return spec.tier if spec else None
 
-    def as_tools_schema(self) -> List[Dict[str, Any]]:
+    def as_tools_schema(self, dispatchable_only: bool = False) -> List[Dict[str, Any]]:
         """Rebuilds the prompt-facing {name, description, parameters} shape from
         the registered specs, so the AI-facing schema and the dispatch table can't
-        drift apart the way two hand-kept-in-sync lists eventually would."""
+        drift apart the way two hand-kept-in-sync lists eventually would.
+
+        dispatchable_only=True filters out any tool with no real dispatch
+        handler wired (spec.dispatch is None) — used by the Agent Engine
+        (src/core/agent_engine.py), which unlike the conversational prompt
+        has no use for "descriptive only, triggered elsewhere" tools like
+        observe_screen, or a tool gated off by a Settings master switch (see
+        build_default_registry): every entry it's told about must actually
+        be something it can try."""
         schema = []
         for spec in self._tools.values():
+            if dispatchable_only and spec.dispatch is None:
+                continue
             entry = {"name": spec.name, "description": spec.description}
             if spec.parameters:
                 entry["parameters"] = spec.parameters
@@ -121,6 +131,42 @@ _TOOL_DEFS = [
         "tier": PermissionTier.SAFE,
         "description": "Agenda um lembrete/timer — anuncia a mensagem em voz alta quando o tempo passar.",
         "parameters": {"message": "string", "minutes_from_now": "number"},
+    },
+    {
+        "name": "mouse_click",
+        "tier": PermissionTier.CONFIRM,
+        "description": "Move o mouse até (x, y) na tela e clica. Coordenadas em pixels, origem no canto superior esquerdo.",
+        "parameters": {"x": "number", "y": "number", "button": '"left" ou "right" (padrão left)'},
+    },
+    {
+        "name": "mouse_move",
+        "tier": PermissionTier.CONFIRM,
+        "description": "Move o mouse até (x, y) na tela, sem clicar.",
+        "parameters": {"x": "number", "y": "number"},
+    },
+    {
+        "name": "type_text",
+        "tier": PermissionTier.CONFIRM,
+        "description": "Digita um texto na posição atual do cursor/foco, como se fosse teclado real.",
+        "parameters": {"text": "string"},
+    },
+    {
+        "name": "press_key",
+        "tier": PermissionTier.CONFIRM,
+        "description": (
+            "Pressiona uma tecla especial (enter, tab, esc, backspace, delete, space, "
+            "up/down/left/right, home, end, pageup, pagedown) ou um único caractere."
+        ),
+        "parameters": {"key": "string"},
+    },
+    {
+        "name": "run_terminal_tool",
+        "tier": PermissionTier.CONFIRM,
+        "description": (
+            "Executa um binário pré-aprovado da allowlist de terminal (Configurações → Terminal) "
+            "com argumentos — nunca um comando de shell livre, e nada roda se não estiver na allowlist."
+        ),
+        "parameters": {"name": "string", "args": "string (opcional)"},
     },
 ]
 
@@ -234,6 +280,62 @@ def _create_reminder(scheduler, action_param) -> bool:
     return True
 
 
+def _to_coordinate(value) -> Optional[int]:
+    try:
+        n = int(value)
+    except (TypeError, ValueError):
+        return None
+    if not (0 <= n <= 10000):
+        return None
+    return n
+
+
+def _mouse_click(input_controller, action_param) -> bool:
+    if not isinstance(action_param, dict):
+        return False
+    x, y = _to_coordinate(action_param.get("x")), _to_coordinate(action_param.get("y"))
+    if x is None or y is None:
+        return False
+    button = action_param.get("button", "left")
+    button = button if button in ("left", "right") else "left"
+    return input_controller.click(x, y, button=button)
+
+
+def _mouse_move(input_controller, action_param) -> bool:
+    if not isinstance(action_param, dict):
+        return False
+    x, y = _to_coordinate(action_param.get("x")), _to_coordinate(action_param.get("y"))
+    if x is None or y is None:
+        return False
+    return input_controller.move(x, y)
+
+
+def _type_text(input_controller, action_param) -> bool:
+    text = action_param.get("text") if isinstance(action_param, dict) else action_param
+    if not isinstance(text, str) or not text:
+        return False
+    return input_controller.type_text(text)
+
+
+def _press_key(input_controller, action_param) -> bool:
+    key = action_param.get("key") if isinstance(action_param, dict) else action_param
+    if not isinstance(key, str) or not key.strip():
+        return False
+    return input_controller.press_key(key.strip())
+
+
+def _run_terminal_tool(terminal_tool_manager, action_param) -> bool:
+    if not isinstance(action_param, dict):
+        return False
+    name = action_param.get("name")
+    if not isinstance(name, str) or not name.strip():
+        return False
+    args = action_param.get("args", "")
+    if not isinstance(args, str):
+        args = ""
+    return bool(terminal_tool_manager.run(name, args).get("success"))
+
+
 # Tool names with a real dispatch handler — observe_screen/translate_screen are
 # deliberately absent (see _TOOL_DEFS' comment above).
 _DISPATCH_BUILDERS = {
@@ -246,6 +348,11 @@ _DISPATCH_BUILDERS = {
     "set_app_volume": lambda m: (lambda p: _set_app_volume(m["audio_mixer_manager"], p)),
     "research_topic": lambda m: (lambda p: _research_topic(m["background_task_manager"], m["research_manager"], p)),
     "create_reminder": lambda m: (lambda p: _create_reminder(m["scheduler"], p)),
+    "mouse_click": lambda m: (lambda p: _mouse_click(m["input_controller"], p)),
+    "mouse_move": lambda m: (lambda p: _mouse_move(m["input_controller"], p)),
+    "type_text": lambda m: (lambda p: _type_text(m["input_controller"], p)),
+    "press_key": lambda m: (lambda p: _press_key(m["input_controller"], p)),
+    "run_terminal_tool": lambda m: (lambda p: _run_terminal_tool(m["terminal_tool_manager"], p)),
 }
 
 
@@ -256,6 +363,8 @@ def build_default_registry(
     background_task_manager=None,
     research_manager=None,
     scheduler=None,
+    input_controller=None,
+    terminal_tool_manager=None,
 ) -> ToolRegistry:
     """Registers every tool from _TOOL_DEFS, binding a real dispatch handler for
     the ones that have one. Each dispatch guard reproduces the original
@@ -269,7 +378,14 @@ def build_default_registry(
     (a real ResearchManager needs an AI provider) — if either is omitted,
     research_topic stays descriptive-only (no dispatch), same as
     observe_screen/translate_screen. scheduler works the same way for
-    create_reminder — it needs a real Database-backed instance, no default."""
+    create_reminder — it needs a real Database-backed instance, no default.
+
+    input_controller/terminal_tool_manager follow the same "no dispatch
+    without a real instance" rule — and orchestrator.py deliberately never
+    constructs one unless the matching Settings master switch
+    (input_control_enabled / terminal_tool_enabled) is on, so these tools
+    stay entirely unregistered — not just unconfirmed, genuinely absent from
+    what the AI is even told exists — until a user opts in. See FASE 3."""
     if audio_mixer_manager is None:
         from src.desktop.audio_mixer import AudioMixerManager
         audio_mixer_manager = AudioMixerManager()
@@ -280,6 +396,8 @@ def build_default_registry(
         "background_task_manager": background_task_manager,
         "research_manager": research_manager,
         "scheduler": scheduler,
+        "input_controller": input_controller,
+        "terminal_tool_manager": terminal_tool_manager,
     }
     registry = ToolRegistry()
     for tool_def in _TOOL_DEFS:
@@ -289,11 +407,14 @@ def build_default_registry(
             background_task_manager is None or research_manager is None
         )
         reminder_deps_missing = name == "create_reminder" and scheduler is None
-        dispatch = (
-            build_dispatch(managers)
-            if build_dispatch and not research_deps_missing and not reminder_deps_missing
-            else None
+        input_deps_missing = name in ("mouse_click", "mouse_move", "type_text", "press_key") and (
+            input_controller is None
         )
+        terminal_deps_missing = name == "run_terminal_tool" and terminal_tool_manager is None
+        deps_missing = (
+            research_deps_missing or reminder_deps_missing or input_deps_missing or terminal_deps_missing
+        )
+        dispatch = build_dispatch(managers) if build_dispatch and not deps_missing else None
         registry.register(ToolSpec(
             name=name,
             tier=tool_def["tier"],

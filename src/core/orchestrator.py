@@ -22,6 +22,8 @@ from src.core.scheduler import Scheduler
 from src.core import reminder_parser
 from src.core.task_manager import TaskManager
 from src.core.agent_engine import AgentEngine
+from src.desktop.input_control import InputController
+from src.desktop.terminal_tool import TerminalToolManager
 from src.memory.database import Database
 from src.vision.continuous_vision import ContinuousVisionBuffer, VisionMode
 from src.core.tool_registry import build_default_registry
@@ -254,11 +256,26 @@ class CompanionOrchestrator:
         # on a timer below once the rest of __init__ has run.
         self.scheduler = Scheduler(Database(), self.event_bus, on_fire=self._on_reminder_fired)
 
+        # Mouse/keyboard and terminal tools (FASE 3) — each gated by its own
+        # Settings master switch, OFF by default. Unless enabled, the
+        # corresponding manager stays None and build_default_registry below
+        # leaves those tools with no dispatch handler at all — not just
+        # unconfirmed, genuinely inert. See src/desktop/input_control.py and
+        # src/desktop/terminal_tool.py.
+        self.input_controller = (
+            InputController() if self.settings.get("input_control_enabled", False) else None
+        )
+        self.terminal_tool_manager = (
+            TerminalToolManager(self.settings.get("terminal_allowlist", {}), self.event_bus)
+            if self.settings.get("terminal_tool_enabled", False) else None
+        )
+
         # Tool dispatch (SAFE/CONFIRM/DANGEROUS tiers) — see src/core/tool_registry.py
         # and src/core/agent_core.py for the FASE 2 Agent Core extraction.
         self.tool_registry = build_default_registry(
             self.action_manager, self.memory_manager, self.audio_mixer_manager,
             self.background_task_manager, self.research_manager, self.scheduler,
+            self.input_controller, self.terminal_tool_manager,
         )
         self.agent_core = AgentCore(
             self.tool_registry, self.event_bus, confirm_fn=self.confirm_fn, policy_manager=self.policy_manager,
@@ -266,9 +283,10 @@ class CompanionOrchestrator:
 
         # Agent Engine (FASE 2) — multi-step goal execution (OBSERVAR/DECIDIR/
         # AGIR/VERIFICAR/REPETIR), reusing this same agent_core so a task-loop
-        # step still goes through the real CONFIRM/allowlist flow. Not yet
-        # wired to a chat trigger phrase — that's a deliberate FASE 3 decision
-        # (once more tools exist to actually act on), see docs/ARCHITECTURE.md.
+        # step still goes through the real CONFIRM/allowlist flow (and only
+        # ever sees mouse/keyboard/terminal as options if the switches above
+        # are on). Not yet wired to a chat trigger phrase — that's a
+        # deliberate later decision, see docs/ARCHITECTURE.md.
         self.task_manager = TaskManager(self.event_bus)
         self.agent_engine = AgentEngine(
             self.ai_complex_provider or self.ai_provider, self.agent_core, self.task_manager, self.event_bus,

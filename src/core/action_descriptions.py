@@ -18,6 +18,26 @@ def describe_action(action: str, action_param) -> str:
             level = action_param.get("level", "?")
             return f'Silva quer ajustar o volume de "{app}" para {level}%.'
         return "Silva quer ajustar o volume de um aplicativo."
+    if action == "mouse_click":
+        if isinstance(action_param, dict):
+            return f'Silva quer clicar na posição ({action_param.get("x", "?")}, {action_param.get("y", "?")}) da tela.'
+        return "Silva quer clicar em algum lugar da tela."
+    if action == "mouse_move":
+        if isinstance(action_param, dict):
+            return f'Silva quer mover o mouse até ({action_param.get("x", "?")}, {action_param.get("y", "?")}).'
+        return "Silva quer mover o mouse."
+    if action == "type_text":
+        text = action_param.get("text", "") if isinstance(action_param, dict) else str(action_param)
+        return f'Silva quer digitar: "{text}"'
+    if action == "press_key":
+        key = action_param.get("key", "?") if isinstance(action_param, dict) else str(action_param)
+        return f'Silva quer pressionar a tecla "{key}".'
+    if action == "run_terminal_tool":
+        if isinstance(action_param, dict):
+            name = action_param.get("name", "?")
+            args = action_param.get("args", "")
+            return f'Silva quer rodar "{name}"{f" com argumentos: {args}" if args else ""} no terminal.'
+        return "Silva quer rodar uma ferramenta de terminal."
     # Fallback for any future CONFIRM-tier tool that doesn't get bespoke copy
     # here yet — still informative, never blank.
     return f'Silva quer executar a ação "{action}" ({action_param!r}).'

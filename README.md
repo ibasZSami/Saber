@@ -85,10 +85,25 @@ Toda ação passa por um `ToolRegistry` central com tier de permissão (`SAFE` /
   o chrome") — via `pycaw`, funciona com qualquer app tocando som no momento, não só os da
   allowlist (é reversível e não abre/fecha nada, então não precisa de allowlist pra isso).
 - **Guardar/esquecer memória**.
+- **Controle de mouse/teclado** (clicar, mover, digitar, apertar tecla) — **desligado por padrão**,
+  atrás de um interruptor mestre em **Configurações → Agente**. Enquanto desligado a ferramenta
+  nem existe pra IA tentar usar, não é só recusada.
+- **Terminal controlado** — roda só binários de uma allowlist própria (**vazia por padrão**,
+  gerenciável em Configurações → Agente), sem shell livre, argumentos validados, saída capada e
+  logada. Pensado pra ferramentas como Nmap no seu próprio PC, nunca um shell aberto.
 
-`CONFIRM` hoje executa e sinaliza num evento próprio (ainda não existe um diálogo de confirmação
-de verdade — ver Roadmap). `DANGEROUS` existe como tier reservado; nenhuma ação usa ainda, e
-qualquer coisa marcada assim seria recusada por padrão (fail-safe) até esse tier ganhar uso real.
+`CONFIRM` hoje pede confirmação de verdade (diálogo real, com opção de sempre permitir/sempre
+bloquear/só essa vez) antes de executar. `DANGEROUS` existe como tier reservado; nenhuma ação usa
+ainda, e qualquer coisa marcada assim seria recusada por padrão (fail-safe) até esse tier ganhar
+uso real.
+
+### Agent Engine (execução de objetivos em múltiplos passos)
+Motor de tarefa multi-passo (`TaskManager` + `AgentEngine`): dado um objetivo, roda um loop real
+de OBSERVAR → DECIDIR → AGIR → VERIFICAR → REPETIR até concluir ou até bater um limite de
+segurança (número de passos, tempo, ou a mesma ação repetindo). Cada passo ainda passa pelo mesmo
+`AgentCore`/allowlist/confirmação do chat normal — uma tarefa multi-passo não tem atalho de
+permissão. Ainda não conectado a um comando de chat dedicado (é o motor, testado e funcional, sem
+gatilho de invocação ainda) — ver `docs/ARCHITECTURE.md`.
 
 ### Sistema & Conveniência
 - **Inicialização automática com o Windows**, ativa por padrão — liga/desliga a qualquer momento
@@ -158,11 +173,11 @@ voz e permissões iniciais.
 pytest tests/ --cov=src --cov-report=term-missing
 ```
 
-690 testes cobrindo orquestrador, ferramentas/permissões, voz, visão contínua, memória,
-lembretes/scheduler, notícias, mixer de som, autostart, pesquisa em segundo plano, Modo Nerd,
-tela de Aplicativos, sprites/animação, estado funcional/emoção, diagnóstico, atividade,
-configuração, EventBus, confirmação de permissão e segurança dedicada. Roda automaticamente a
-cada push/PR (ver badge no topo).
+786 testes cobrindo orquestrador, ferramentas/permissões, Agent Engine (task loop), mouse/teclado,
+terminal controlado, voz, visão contínua, memória, lembretes/scheduler, notícias, mixer de som,
+autostart, pesquisa em segundo plano, Modo Nerd, tela de Aplicativos, sprites/animação, estado
+funcional/emoção, diagnóstico, atividade, configuração, EventBus, confirmação de permissão e
+segurança dedicada. Roda automaticamente a cada push/PR (ver badge no topo).
 
 Documentação técnica (arquitetura, segurança, padrões de teste) em [`docs/`](docs/).
 

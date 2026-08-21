@@ -167,6 +167,88 @@ class TestDiagnosticsTab:
         assert "SILVA DIAGNOSTICS" in out_file.read_text(encoding="utf-8")
 
 
+class TestAgentTab:
+    def test_master_switches_default_off(self, tmp_path):
+        settings = _settings(tmp_path, allowlist={})
+        window = SettingsWindow(settings)
+        assert window.input_control_chk.isChecked() is False
+        assert window.terminal_tool_chk.isChecked() is False
+
+    def test_master_switches_reflect_saved_settings(self, tmp_path):
+        settings = _settings(tmp_path, allowlist={}, input_control_enabled=True, terminal_tool_enabled=True)
+        window = SettingsWindow(settings)
+        assert window.input_control_chk.isChecked() is True
+        assert window.terminal_tool_chk.isChecked() is True
+
+    def test_save_persists_master_switches(self, tmp_path):
+        settings = _settings(tmp_path, allowlist={})
+        window = SettingsWindow(settings)
+        window.input_control_chk.setChecked(True)
+        window.terminal_tool_chk.setChecked(True)
+
+        window._save()
+
+        assert settings.get("input_control_enabled") is True
+        assert settings.get("terminal_tool_enabled") is True
+
+    def test_add_and_remove_terminal_tool(self, tmp_path):
+        settings = _settings(tmp_path, allowlist={})
+        window = SettingsWindow(settings)
+        window.terminal_name_input.setText("Nmap")
+        window.terminal_path_input.setText(r"C:\Program Files\Nmap\nmap.exe")
+
+        window._add_terminal_tool()
+
+        assert window.terminal_allowlist == {"nmap": r"C:\Program Files\Nmap\nmap.exe"}
+        assert window.terminal_list.count() == 1
+
+        window.terminal_list.setCurrentRow(0)
+        window._remove_terminal_tool()
+        assert window.terminal_allowlist == {}
+
+    @patch("src.ui.settings_window.QMessageBox.warning")
+    def test_add_terminal_tool_with_missing_path_is_rejected(self, mock_warning, tmp_path):
+        settings = _settings(tmp_path, allowlist={})
+        window = SettingsWindow(settings)
+        window.terminal_name_input.setText("nmap")
+        window.terminal_path_input.setText("")
+
+        window._add_terminal_tool()
+
+        assert window.terminal_allowlist == {}
+        mock_warning.assert_called_once()
+
+    def test_save_persists_terminal_allowlist(self, tmp_path):
+        settings = _settings(tmp_path, allowlist={})
+        window = SettingsWindow(settings)
+        window.terminal_name_input.setText("nmap")
+        window.terminal_path_input.setText("nmap.exe")
+        window._add_terminal_tool()
+
+        window._save()
+
+        assert settings.get("terminal_allowlist") == {"nmap": "nmap.exe"}
+
+    def test_save_updates_live_terminal_tool_manager_without_restart(self, tmp_path):
+        from src.core.event_bus import EventBus
+        from src.desktop.terminal_tool import TerminalToolManager
+        settings = _settings(tmp_path, allowlist={})
+        terminal_tool_manager = TerminalToolManager({"old": "old.exe"}, EventBus())
+        window = SettingsWindow(settings, terminal_tool_manager=terminal_tool_manager)
+        window.terminal_name_input.setText("nmap")
+        window.terminal_path_input.setText("nmap.exe")
+        window._add_terminal_tool()
+
+        window._save()
+
+        assert terminal_tool_manager.allowlist == {"nmap": "nmap.exe"}
+
+    def test_save_without_terminal_tool_manager_does_not_raise(self, tmp_path):
+        settings = _settings(tmp_path, allowlist={})
+        window = SettingsWindow(settings, terminal_tool_manager=None)
+        window._save()  # should not raise
+
+
 class TestActivityTab:
     def test_without_an_activity_log_shows_the_empty_message(self, tmp_path):
         settings = _settings(tmp_path, allowlist={"notepad": "notepad.exe"})
