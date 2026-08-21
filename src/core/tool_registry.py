@@ -59,20 +59,27 @@ class ToolRegistry:
         return schema
 
 
-# Static metadata for every tool the AI can be told about — including
-# observe_screen/translate_screen, which are descriptive-only (vision/translation
-# are actually triggered by keyword detection elsewhere, not through this dispatch
-# table) and so are registered with no dispatch handler.
+# Static metadata for every tool the AI can be told about. translate_screen
+# stays descriptive-only (the one-shot "Traduz isso" flow is keyword-
+# triggered in orchestrator.py, not a clean fit for this dispatch table) —
+# but observe_screen (FASE 8) DOES have a real dispatch now: a pure OCR
+# read of the current screen, so the Agent Engine's task loop can actually
+# "look" at something mid-task instead of only reacting to chat keywords.
 _TOOL_DEFS = [
     {
         "name": "observe_screen",
         "tier": PermissionTier.SAFE,
-        "description": "Obtém uma análise da tela atual.",
+        "description": "Lê o texto visível na tela agora (OCR) — usa isso pra ver o que está escrito antes de decidir o próximo passo de uma tarefa.",
     },
     {
         "name": "translate_screen",
         "tier": PermissionTier.SAFE,
         "description": "Captura a tela, executa OCR e traduz o texto selecionado.",
+    },
+    {
+        "name": "activate_translation_mode",
+        "tier": PermissionTier.SAFE,
+        "description": "Liga o modo de tradução contínua da tela (overlay traduzindo em tempo real) — equivalente ao comando de voz \"traduzir\".",
     },
     {
         "name": "open_application",
@@ -324,19 +331,47 @@ def _press_key(input_controller, action_param) -> bool:
     return input_controller.press_key(key.strip())
 
 
-def _run_terminal_tool(terminal_tool_manager, action_param) -> bool:
+def _run_terminal_tool(terminal_tool_manager, action_param):
     if not isinstance(action_param, dict):
-        return False
+        return False, None
     name = action_param.get("name")
     if not isinstance(name, str) or not name.strip():
-        return False
+        return False, None
     args = action_param.get("args", "")
     if not isinstance(args, str):
         args = ""
-    return bool(terminal_tool_manager.run(name, args).get("success"))
+    result = terminal_tool_manager.run(name, args)
+    # detail is the real command output on success, or the refusal/error
+    # reason on failure — either way, worth surfacing to whatever's reading
+    # execute_with_detail() (the Agent Engine task loop, FASE 8), not just
+    # a bare bool.
+    detail = result.get("output") if result.get("success") else result.get("error")
+    return bool(result.get("success")), detail
 
 
-# Tool names with a real dispatch handler — observe_screen/translate_screen are
+def _observe_screen(screen_capture, ocr_provider, action_param):
+    """FASE 8 — a real, dispatchable "look at the screen" for the Agent
+    Engine's task loop (chat's own vision path stays keyword-triggered,
+    unaffected — see _TOOL_DEFS' comment). Pure OCR text read, not an
+    AI-vision image description — cheaper, faster, and enough for a task
+    loop to react to on-screen text (dialog boxes, menu labels, HUD text)."""
+    try:
+        img = screen_capture.capture_primary()
+        result = ocr_provider.extract_text(img)
+    except Exception as e:
+        return False, str(e)
+    text = result.get("text", "")
+    if not text:
+        return False, result.get("error") or "Nenhum texto legível encontrado na tela."
+    return True, text
+
+
+def _activate_translation_mode(translation_mode, action_param) -> bool:
+    translation_mode.start()
+    return True
+
+
+# Tool names with a real dispatch handler — translate_screen is
 # deliberately absent (see _TOOL_DEFS' comment above).
 _DISPATCH_BUILDERS = {
     "open_application": lambda m: (lambda p: _open_application(m["action_manager"], p)),
@@ -353,6 +388,8 @@ _DISPATCH_BUILDERS = {
     "type_text": lambda m: (lambda p: _type_text(m["input_controller"], p)),
     "press_key": lambda m: (lambda p: _press_key(m["input_controller"], p)),
     "run_terminal_tool": lambda m: (lambda p: _run_terminal_tool(m["terminal_tool_manager"], p)),
+    "observe_screen": lambda m: (lambda p: _observe_screen(m["screen_capture"], m["ocr_provider"], p)),
+    "activate_translation_mode": lambda m: (lambda p: _activate_translation_mode(m["translation_mode"], p)),
 }
 
 
@@ -365,6 +402,9 @@ def build_default_registry(
     scheduler=None,
     input_controller=None,
     terminal_tool_manager=None,
+    screen_capture=None,
+    ocr_provider=None,
+    translation_mode=None,
 ) -> ToolRegistry:
     """Registers every tool from _TOOL_DEFS, binding a real dispatch handler for
     the ones that have one. Each dispatch guard reproduces the original
@@ -385,7 +425,11 @@ def build_default_registry(
     constructs one unless the matching Settings master switch
     (input_control_enabled / terminal_tool_enabled) is on, so these tools
     stay entirely unregistered — not just unconfirmed, genuinely absent from
-    what the AI is even told exists — until a user opts in. See FASE 3."""
+    what the AI is even told exists — until a user opts in. See FASE 3.
+
+    screen_capture+ocr_provider (both needed together) enable observe_screen's
+    real dispatch; translation_mode enables activate_translation_mode's — see
+    FASE 8."""
     if audio_mixer_manager is None:
         from src.desktop.audio_mixer import AudioMixerManager
         audio_mixer_manager = AudioMixerManager()
@@ -398,6 +442,9 @@ def build_default_registry(
         "scheduler": scheduler,
         "input_controller": input_controller,
         "terminal_tool_manager": terminal_tool_manager,
+        "screen_capture": screen_capture,
+        "ocr_provider": ocr_provider,
+        "translation_mode": translation_mode,
     }
     registry = ToolRegistry()
     for tool_def in _TOOL_DEFS:
@@ -411,8 +458,11 @@ def build_default_registry(
             input_controller is None
         )
         terminal_deps_missing = name == "run_terminal_tool" and terminal_tool_manager is None
+        observe_deps_missing = name == "observe_screen" and (screen_capture is None or ocr_provider is None)
+        translation_mode_deps_missing = name == "activate_translation_mode" and translation_mode is None
         deps_missing = (
             research_deps_missing or reminder_deps_missing or input_deps_missing or terminal_deps_missing
+            or observe_deps_missing or translation_mode_deps_missing
         )
         dispatch = build_dispatch(managers) if build_dispatch and not deps_missing else None
         registry.register(ToolSpec(

@@ -108,6 +108,60 @@ class TestMultiStepExecution:
         assert task.status == TaskStatus.COMPLETED
 
 
+class TestRichObservation:
+    """FASE 8 — a tool with real output (observe_screen's OCR text, a
+    terminal command's stdout) must surface it as the step's observation,
+    not just a generic success/failure line — see AgentCore.execute_with_detail."""
+
+    def test_tuple_dispatch_detail_becomes_the_observation_on_success(self, monkeypatch):
+        import threading
+        from src.core.tool_registry import ToolRegistry, ToolSpec, PermissionTier
+        registry = ToolRegistry()
+        registry.register(ToolSpec(
+            name="observe_screen", tier=PermissionTier.SAFE, description="test",
+            dispatch=lambda p: (True, "Inventário: 64/64 madeira"),
+        ))
+        bus = EventBus()
+        bus.reset()
+        agent_core = AgentCore(registry, bus)
+        task_manager = TaskManager(bus)
+        engine = AgentEngine(MagicMock(), agent_core, task_manager, bus)
+        engine.ai_provider.chat.side_effect = [
+            '{"done": false, "action": "observe_screen", "action_param": ""}',
+            '{"done": true, "result": "inventário cheio", "action": "Nenhuma", "action_param": ""}',
+        ]
+        monkeypatch.setattr(threading, "Thread", _SyncThread)
+
+        task_id = engine.run("verificar inventário")
+
+        task = task_manager.get_task(task_id)
+        assert task.steps[0].observation == "Inventário: 64/64 madeira"
+
+    def test_tuple_dispatch_detail_is_prefixed_on_failure(self, monkeypatch):
+        import threading
+        from src.core.tool_registry import ToolRegistry, ToolSpec, PermissionTier
+        registry = ToolRegistry()
+        registry.register(ToolSpec(
+            name="run_terminal_tool", tier=PermissionTier.CONFIRM, description="test",
+            dispatch=lambda p: (False, "não está na allowlist"),
+        ))
+        bus = EventBus()
+        bus.reset()
+        agent_core = AgentCore(registry, bus)
+        task_manager = TaskManager(bus)
+        engine = AgentEngine(MagicMock(), agent_core, task_manager, bus)
+        engine.ai_provider.chat.side_effect = [
+            '{"done": false, "action": "run_terminal_tool", "action_param": {"name": "nmap"}}',
+            '{"done": true, "result": "não deu", "action": "Nenhuma", "action_param": ""}',
+        ]
+        monkeypatch.setattr(threading, "Thread", _SyncThread)
+
+        task_id = engine.run("rodar nmap")
+
+        task = task_manager.get_task(task_id)
+        assert task.steps[0].observation == "Falhou: não está na allowlist"
+
+
 class TestSafetyLimits:
     def test_stops_at_max_steps(self, monkeypatch):
         import threading

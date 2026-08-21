@@ -391,7 +391,7 @@ class TestRunTerminalToolDispatch:
 
         result = registry.get("run_terminal_tool").dispatch({"name": "nmap", "args": "-sV localhost"})
 
-        assert result is True
+        assert result == (True, "ok")
         terminal_tool_manager.run.assert_called_once_with("nmap", "-sV localhost")
 
     def test_dispatch_defaults_args_to_empty_string(self):
@@ -404,24 +404,88 @@ class TestRunTerminalToolDispatch:
         registry, terminal_tool_manager = self._registry()
         terminal_tool_manager.run.return_value = {"success": False, "output": "", "error": "não permitido"}
         result = registry.get("run_terminal_tool").dispatch({"name": "not_allowed"})
-        assert result is False
+        assert result == (False, "não permitido")
 
     def test_dispatch_rejects_missing_name(self):
         registry, terminal_tool_manager = self._registry()
         result = registry.get("run_terminal_tool").dispatch({"args": "x"})
-        assert result is False
+        assert result == (False, None)
         terminal_tool_manager.run.assert_not_called()
 
     def test_dispatch_rejects_non_dict_param(self):
         registry, terminal_tool_manager = self._registry()
         result = registry.get("run_terminal_tool").dispatch("nmap")
-        assert result is False
+        assert result == (False, None)
         terminal_tool_manager.run.assert_not_called()
 
     def test_no_dispatch_when_terminal_tool_manager_not_provided(self):
         action_manager, memory_manager = MagicMock(), MagicMock()
         registry = build_default_registry(action_manager, memory_manager)
         assert registry.get("run_terminal_tool").dispatch is None
+
+
+class TestObserveScreenDispatch:
+    def _registry(self):
+        action_manager, memory_manager = MagicMock(), MagicMock()
+        screen_capture = MagicMock()
+        ocr_provider = MagicMock()
+        registry = build_default_registry(
+            action_manager, memory_manager, screen_capture=screen_capture, ocr_provider=ocr_provider,
+        )
+        return registry, screen_capture, ocr_provider
+
+    def test_dispatch_returns_the_ocr_text_as_detail(self):
+        registry, screen_capture, ocr_provider = self._registry()
+        ocr_provider.extract_text.return_value = {"text": "Game Over", "confidence": 0.9}
+
+        spec = registry.get("observe_screen")
+        result = spec.dispatch("")
+
+        assert result == (True, "Game Over")
+
+    def test_dispatch_fails_when_no_text_found(self):
+        registry, screen_capture, ocr_provider = self._registry()
+        ocr_provider.extract_text.return_value = {"text": "", "error": "sem texto"}
+
+        result = registry.get("observe_screen").dispatch("")
+
+        assert result == (False, "sem texto")
+
+    def test_dispatch_handles_capture_exception(self):
+        registry, screen_capture, ocr_provider = self._registry()
+        screen_capture.capture_primary.side_effect = RuntimeError("boom")
+
+        success, detail = registry.get("observe_screen").dispatch("")
+
+        assert success is False
+        assert "boom" in detail
+
+    def test_no_dispatch_when_deps_not_provided(self):
+        action_manager, memory_manager = MagicMock(), MagicMock()
+        registry = build_default_registry(action_manager, memory_manager)
+        assert registry.get("observe_screen").dispatch is None
+
+    def test_no_dispatch_when_only_screen_capture_provided(self):
+        action_manager, memory_manager = MagicMock(), MagicMock()
+        registry = build_default_registry(action_manager, memory_manager, screen_capture=MagicMock())
+        assert registry.get("observe_screen").dispatch is None
+
+
+class TestActivateTranslationModeDispatch:
+    def test_dispatch_starts_translation_mode(self):
+        action_manager, memory_manager = MagicMock(), MagicMock()
+        translation_mode = MagicMock()
+        registry = build_default_registry(action_manager, memory_manager, translation_mode=translation_mode)
+
+        result = registry.get("activate_translation_mode").dispatch("")
+
+        assert result is True
+        translation_mode.start.assert_called_once()
+
+    def test_no_dispatch_when_translation_mode_not_provided(self):
+        action_manager, memory_manager = MagicMock(), MagicMock()
+        registry = build_default_registry(action_manager, memory_manager)
+        assert registry.get("activate_translation_mode").dispatch is None
 
 
 class TestAsToolsSchemaDispatchableOnly:
@@ -432,16 +496,18 @@ class TestAsToolsSchemaDispatchableOnly:
         names = {entry["name"] for entry in registry.as_tools_schema(dispatchable_only=True)}
 
         assert "search_web" in names
-        assert "observe_screen" not in names  # never has a dispatch handler
+        assert "observe_screen" not in names  # no screen_capture/ocr_provider provided
         assert "create_reminder" not in names  # no scheduler provided
         assert "mouse_click" not in names  # no input_controller provided
         assert "run_terminal_tool" not in names  # no terminal_tool_manager provided
+        assert "translate_screen" not in names  # never has a dispatch handler at all
 
     def test_includes_everything_when_all_dependencies_are_wired(self):
         action_manager, memory_manager = MagicMock(), MagicMock()
         registry = build_default_registry(
             action_manager, memory_manager,
             scheduler=MagicMock(), input_controller=MagicMock(), terminal_tool_manager=MagicMock(),
+            screen_capture=MagicMock(), ocr_provider=MagicMock(), translation_mode=MagicMock(),
         )
 
         names = {entry["name"] for entry in registry.as_tools_schema(dispatchable_only=True)}
@@ -449,7 +515,9 @@ class TestAsToolsSchemaDispatchableOnly:
         assert "mouse_click" in names
         assert "create_reminder" in names
         assert "run_terminal_tool" in names
-        assert "observe_screen" not in names  # still descriptive-only regardless
+        assert "observe_screen" in names
+        assert "activate_translation_mode" in names
+        assert "translate_screen" not in names  # still descriptive-only regardless
 
     def test_default_false_keeps_every_tool(self):
         action_manager, memory_manager = MagicMock(), MagicMock()
@@ -467,6 +535,7 @@ class TestDescribeTools:
             "observe_screen", "translate_screen", "open_application", "close_application",
             "open_url", "search_web", "remember", "forget_memory", "set_app_volume", "research_topic",
             "create_reminder", "mouse_click", "mouse_move", "type_text", "press_key", "run_terminal_tool",
+            "activate_translation_mode",
         }
         assert all("description" in entry for entry in schema)
 

@@ -2,7 +2,7 @@ from unittest.mock import MagicMock
 
 from src.core.agent_core import AgentCore
 from src.core.event_bus import EventBus
-from src.core.tool_registry import build_default_registry
+from src.core.tool_registry import ToolRegistry, build_default_registry
 from src.desktop.permission_policy import PermissionPolicyManager, PolicyDecision
 
 
@@ -241,6 +241,77 @@ class TestAgentCoreRealConfirmation:
 
         assert handled is False
         confirm_fn.assert_not_called()
+
+
+class TestAgentCoreExecuteWithDetail:
+    """FASE 8 — execute_with_detail() surfaces a tool's rich result (e.g.
+    observe_screen's OCR text, a terminal command's output) alongside the
+    bool, without changing execute()'s own bare-bool contract at all."""
+
+    def test_plain_bool_dispatch_returns_none_detail(self):
+        agent, action_manager, _ = _agent_core()
+        action_manager.open_application.return_value = True
+
+        success, detail = agent.execute_with_detail("open_application", "chrome")
+
+        assert success is True
+        assert detail is None
+
+    def test_tuple_dispatch_surfaces_the_detail_on_success(self):
+        registry = ToolRegistry()
+        from src.core.tool_registry import ToolSpec, PermissionTier
+        registry.register(ToolSpec(
+            name="observe_screen", tier=PermissionTier.SAFE, description="test",
+            dispatch=lambda p: (True, "texto da tela"),
+        ))
+        agent = AgentCore(registry, EventBus())
+
+        success, detail = agent.execute_with_detail("observe_screen", "")
+
+        assert success is True
+        assert detail == "texto da tela"
+
+    def test_tuple_dispatch_surfaces_the_detail_on_failure(self):
+        registry = ToolRegistry()
+        from src.core.tool_registry import ToolSpec, PermissionTier
+        registry.register(ToolSpec(
+            name="run_terminal_tool", tier=PermissionTier.CONFIRM, description="test",
+            dispatch=lambda p: (False, "não está na allowlist"),
+        ))
+        agent = AgentCore(registry, EventBus())
+
+        success, detail = agent.execute_with_detail("run_terminal_tool", {})
+
+        assert success is False
+        assert detail == "não está na allowlist"
+
+    def test_execute_still_returns_a_bare_bool_for_a_tuple_dispatch(self):
+        """execute()'s own contract must stay unchanged — callers that only
+        ever used execute() (chat's own single-turn action dispatch) must
+        keep getting exactly a bool, never a tuple."""
+        registry = ToolRegistry()
+        from src.core.tool_registry import ToolSpec, PermissionTier
+        registry.register(ToolSpec(
+            name="observe_screen", tier=PermissionTier.SAFE, description="test",
+            dispatch=lambda p: (True, "texto da tela"),
+        ))
+        agent = AgentCore(registry, EventBus())
+
+        result = agent.execute("observe_screen", "")
+
+        assert result is True
+
+    def test_unknown_action_returns_false_none(self):
+        agent, _, _ = _agent_core()
+        assert agent.execute_with_detail("fly_to_moon", "now") == (False, None)
+
+    def test_no_action_returns_false_none(self):
+        agent, _, _ = _agent_core()
+        assert agent.execute_with_detail("Nenhuma", "") == (False, None)
+
+    def test_denied_confirm_action_returns_false_none(self):
+        agent, _, _ = _agent_core(confirm_fn=lambda action, param, description: PolicyDecision.DECLINED)
+        assert agent.execute_with_detail("open_application", "chrome") == (False, None)
 
 
 class TestAgentCorePolicyManager:

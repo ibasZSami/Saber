@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, Tuple
 
 from src.core.action_descriptions import describe_action
 from src.core.event_bus import (
@@ -55,33 +55,54 @@ class AgentCore:
 
     def execute(self, action: str, action_param) -> bool:
         """Same contract as the old CompanionOrchestrator._execute_action:
-        returns True if a tool actually ran and reported success."""
+        returns True if a tool actually ran and reported success. See
+        execute_with_detail() for callers (the Agent Engine task loop, FASE
+        8) that need more than a bare bool — e.g. what observe_screen
+        actually saw, or a terminal tool's real output."""
+        success, _ = self.execute_with_detail(action, action_param)
+        return success
+
+    def execute_with_detail(self, action: str, action_param) -> Tuple[bool, Optional[str]]:
+        """Same permission/confirmation flow as execute(), but also returns
+        a "detail" string when the dispatched tool provides one — a plain
+        Callable[[Any], bool] dispatch still works unchanged (detail is
+        None); a dispatch that returns (bool, str) instead of a bare bool
+        (see e.g. src/core/tool_registry.py's _observe_screen/
+        _run_terminal_tool) surfaces its detail here. Never changes what
+        gets emitted on the EventBus — ACTION_EXECUTED/REJECTED stay
+        bool-only by design (see tool_registry.py's TERMINAL_TOOL_EXECUTED
+        for why a generic event can't carry this instead)."""
         if not action or action == "Nenhuma":
-            return False
+            return False, None
 
         spec = self.registry.get(action)
         if spec is None:
-            return False  # unknown action — ignored safely, same as before
+            return False, None  # unknown action — ignored safely, same as before
 
         self.event_bus.emit(ACTION_REQUESTED, action=action, action_param=action_param)
 
         if spec.tier == PermissionTier.CONFIRM:
             if not self._resolve_confirmation(action, action_param):
-                return False
+                return False, None
         elif spec.tier == PermissionTier.DANGEROUS:
             # No tool is DANGEROUS yet. Fail closed rather than silently running
             # something explicitly marked as needing a confirmation flow that
             # doesn't exist.
             self.event_bus.emit(ACTION_REJECTED, action=action, action_param=action_param)
-            return False
+            return False, None
 
         # Descriptive-only tools (observe_screen/translate_screen) have no dispatch
         # handler — vision/translation are triggered by keyword detection
         # elsewhere, not through this table — so they're known but never "run".
         success = False
+        detail = None
         if spec.dispatch:
             try:
-                success = bool(spec.dispatch(action_param))
+                raw = spec.dispatch(action_param)
+                if isinstance(raw, tuple):
+                    success, detail = bool(raw[0]), raw[1]
+                else:
+                    success = bool(raw)
             except Exception:
                 # A malformed action_param that slips past a tool's own type
                 # checks (or a bug in a future tool) must fail as an ordinary
@@ -91,7 +112,7 @@ class AgentCore:
                 # avoid skipping the ACTION_EXECUTED/REJECTED bookkeeping below.
                 logging.error(f"Tool '{action}' raised while dispatching action_param={action_param!r}", exc_info=True)
         self.event_bus.emit(ACTION_EXECUTED if success else ACTION_REJECTED, action=action, action_param=action_param)
-        return success
+        return success, detail
 
     def _resolve_confirmation(self, action: str, action_param) -> bool:
         """Returns True if a CONFIRM-tier action may proceed to dispatch,

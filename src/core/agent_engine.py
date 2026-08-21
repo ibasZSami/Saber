@@ -103,8 +103,15 @@ class AgentEngine:
 
                 action = parsed.get("action", "Nenhuma")
                 action_param = parsed.get("action_param", "")
-                success = self.agent_core.execute(action, action_param)
-                observation = "Ação executada com sucesso." if success else "Ação falhou ou foi recusada."
+                success, detail = self.agent_core.execute_with_detail(action, action_param)
+                # A tool with real output (observe_screen's OCR text, a
+                # terminal command's stdout) surfaces it here so the next
+                # step can actually react to what happened, not just
+                # whether it happened — see AgentCore.execute_with_detail.
+                if detail:
+                    observation = detail if success else f"Falhou: {detail}"
+                else:
+                    observation = "Ação executada com sucesso." if success else "Ação falhou ou foi recusada."
                 self.task_manager.record_step(task_id, action, action_param, observation)
         except Exception as e:
             logging.error(f"Agent loop crashed for task {task_id}: {e}", exc_info=True)

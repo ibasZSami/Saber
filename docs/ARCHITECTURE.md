@@ -104,6 +104,19 @@ como objetivo autônomo não dispara isso ainda) — fica para uma decisão
 futura. As ferramentas abaixo (FASE 3) já funcionam também no chat normal
 de um passo só, via `AgentCore` diretamente.
 
+**FASE 8 — resultado rico das ferramentas**: `AgentCore.execute()` sempre
+devolveu só um bool (sucesso/falha) — suficiente pro chat normal, mas
+insuficiente pro loop do agente: uma ferramenta como `observe_screen` (OCR
+da tela, dispatch real agora, além do caminho por palavra-chave do chat) ou
+`run_terminal_tool` só vale a pena chamar dentro de um loop se o PRÓXIMO
+passo conseguir ver o que ela realmente retornou (o texto lido, a saída do
+comando). `AgentCore.execute_with_detail()` resolve isso de forma aditiva:
+uma função de dispatch pode devolver `(bool, str)` em vez de só `bool`
+quando tem algo de real pra dizer; `execute()` continua devolvendo só o
+bool, inalterado, pra quem já usa esse contrato. `AgentEngine` usa
+`execute_with_detail()` — a observação de cada passo já é o resultado de
+verdade quando existe, não só "executou com sucesso".
+
 ## Ferramentas de maior risco (FASE 3): mouse/teclado e terminal
 
 Duas categorias novas, cada uma atrás do próprio interruptor mestre em

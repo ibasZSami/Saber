@@ -305,6 +305,7 @@ class CompanionOrchestrator:
             self.action_manager, self.memory_manager, self.audio_mixer_manager,
             self.background_task_manager, self.research_manager, self.scheduler,
             self.input_controller, self.terminal_tool_manager,
+            self.screen_capture, self.translation_manager.ocr, self.translation_mode,
         )
         self.agent_core = AgentCore(
             self.tool_registry, self.event_bus, confirm_fn=self.confirm_fn, policy_manager=self.policy_manager,
