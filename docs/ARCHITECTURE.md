@@ -231,6 +231,23 @@ de ser espremido numa mudança que já tinha outro foco.
   timers ("me lembra em 30 minutos", "às 18h me avisa", recorrência diária),
   persistidos na mesma base SQLite, checados por um `QTimer` periódico.
 
+## Modos do Silva
+
+`src/core/silva_modes.py` define seis presets (`SILVA_MODES`, um dict de
+nome → subconjunto de settings) e `CompanionOrchestrator.apply_silva_mode()`
+os aplica — nenhuma capacidade nova, só um jeito de um clique (ou comando
+"modo trabalho"/"modo jogo"/etc, mesmo padrão determinístico dos outros
+toggles) alcançar uma combinação de coisas que já existem: visão
+(`set_full_vision`, que já cobre `private_mode` + o QTimer ao vivo),
+microfone (só grava em Settings — sem chave liga/desliga ao vivo hoje,
+precisa reiniciar), fala espontânea e Modo Nerd. Cada preset só lista as
+chaves que de fato importa — uma ausente fica exatamente como estava, não
+volta a um padrão.
+
+**Privacidade** é o único com efeito extra: além do preset, ele também para
+qualquer captura já em andamento agora (Modo Tradução, áudio do sistema) —
+os outros presets só mudam o que vai acontecer daqui pra frente.
+
 ## Observabilidade local
 
 - `ActivityLog` (`src/core/activity_log.py`): histórico amigável de ações

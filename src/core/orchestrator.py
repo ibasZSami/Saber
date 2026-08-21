@@ -14,6 +14,7 @@ from src.core.event_bus import (
     USER_SPOKE, SYSTEM_AUDIO_DETECTED, VOICE_STARTED, VOICE_FINISHED,
     ERROR_OCCURRED, SPONTANEOUS_SPEECH,
     NERD_MODE_TOGGLED, VISION_MONITORING_TOGGLED, APP_AUTO_RESOLVED, TASK_COMPLETED, TASK_FAILED,
+    SILVA_MODE_APPLIED,
 )
 from src.core.state_machine import StateMachine
 from src.core.silva_state import SilvaState
@@ -57,6 +58,7 @@ from src.desktop.web_search import WebSearchProvider
 
 from src.memory.manager import MemoryManager
 from src.memory.relevance import select_relevant_memories
+from src.core.silva_modes import SILVA_MODES, get_preset
 from src.voice.tts import EdgeTTSProvider, Pyttsx3Provider, FallbackTTSProvider, DEFAULT_VOICE
 from src.voice.input import VoiceInput
 from src.voice.system_audio import SystemAudioListener
@@ -475,6 +477,54 @@ class CompanionOrchestrator:
         self.set_vision_monitoring(enabled)
         self.event_bus.emit(VISION_MONITORING_TOGGLED, enabled=enabled)
 
+    def apply_silva_mode(self, mode_name: str) -> bool:
+        """Applies a named preset (src/core/silva_modes.py) — several
+        settings/live toggles at once. Returns False for an unrecognized
+        name, True otherwise. Reuses set_full_vision (already handles the
+        private_mode pairing and live QTimer start/stop) rather than
+        setting screen_monitoring_enabled by hand."""
+        preset = get_preset(mode_name)
+        if preset is None:
+            return False
+
+        if "screen_monitoring_enabled" in preset:
+            self.set_full_vision(preset["screen_monitoring_enabled"])
+        if "microphone_enabled" in preset:
+            # No live mic on/off switch exists — see silva_modes.py's
+            # MIC_REQUIRES_RESTART note. Still recorded for next launch.
+            self.settings.set("microphone_enabled", preset["microphone_enabled"])
+        if "spontaneous_talk_enabled" in preset:
+            self.spontaneous_talk_enabled = preset["spontaneous_talk_enabled"]
+            self.settings.set("spontaneous_talk_enabled", preset["spontaneous_talk_enabled"])
+        if "nerd_mode_enabled" in preset:
+            self.nerd_mode_enabled = preset["nerd_mode_enabled"]
+            self.settings.set("nerd_mode_enabled", preset["nerd_mode_enabled"])
+            self.event_bus.emit(NERD_MODE_TOGGLED, enabled=preset["nerd_mode_enabled"])
+
+        if mode_name == "privacidade":
+            # The one mode whose whole point is stopping anything already
+            # actively capturing right now, not just preventing future
+            # capture — the settings above alone wouldn't touch a
+            # Translation Mode or system-audio session already running.
+            if self.translation_mode.state != TranslationModeState.OFF:
+                self.translation_mode.stop()
+            self.system_audio_listener.set_enabled(False)
+
+        self.event_bus.emit(SILVA_MODE_APPLIED, mode=mode_name)
+        return True
+
+    def _maybe_apply_silva_mode(self, user_text: str) -> Optional[str]:
+        """Deterministic short-circuit, same pattern as the other command
+        toggles — "modo trabalho"/"modo jogo"/etc. never needs an AI
+        round-trip. Checked as a whole phrase ("modo <nome>") so it can't
+        collide with unrelated mentions of a mode's name on its own."""
+        text_lower = user_text.lower()
+        for mode_name in SILVA_MODES:
+            if f"modo {mode_name}" in text_lower:
+                self.apply_silva_mode(mode_name)
+                return f"Modo {mode_name.capitalize()} ativado."
+        return None
+
     def _compute_vision_mode(self) -> VisionMode:
         """FASE 10: explicit modes instead of a single on/off toggle.
 
@@ -863,6 +913,14 @@ class CompanionOrchestrator:
                         self._speak_async(nerd_reply)
                         if on_response:
                             on_response(nerd_reply)
+                        return
+
+                    silva_mode_reply = self._maybe_apply_silva_mode(user_text)
+                    if silva_mode_reply is not None:
+                        self.memory_manager.record_turn(user_text, silva_mode_reply)
+                        self._speak_async(silva_mode_reply)
+                        if on_response:
+                            on_response(silva_mode_reply)
                         return
 
                     reminder_reply = self._maybe_create_reminder(user_text)

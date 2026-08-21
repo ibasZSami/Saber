@@ -43,6 +43,10 @@ vez em quando (inclusive notícias reais), e tem controle real e permissionado s
   momento por voz ou texto — "vira nerd" / "ativa o modo nerd" / "desliga o modo nerd". Resposta
   de confirmação é instantânea e determinística (não passa pela IA), e o personagem assume uma
   pose visual diferente enquanto ativo.
+- **Modos do Silva** (Configurações → Geral, ou "modo trabalho"/"modo jogo"/etc por voz ou texto):
+  seis perfis prontos — **Silencioso**, **Trabalho**, **Companhia**, **Foco**, **Privacidade**,
+  **Jogo** — que ajustam mic/visão/fala espontânea/Modo Nerd de uma vez. Privacidade também para
+  na hora qualquer captura contínua já em andamento (Modo Tradução, áudio do sistema).
 - **Pesquisa real em segundo plano** ("pesquisa X"): busca de verdade na web (DuckDuckGo, sem API
   key) + resumo pela IA baseado só nos resultados reais (nunca inventa — se não achar nada, diz
   isso claramente). Não trava a conversa: responde na hora ("pode deixar, já te aviso") e, quando
@@ -200,7 +204,7 @@ voz e permissões iniciais.
 pytest tests/ --cov=src --cov-report=term-missing
 ```
 
-919 testes (91% de cobertura) cobrindo orquestrador, ferramentas/permissões, Agent Engine (task
+943 testes (91% de cobertura) cobrindo orquestrador, ferramentas/permissões, Agent Engine (task
 loop), mouse/teclado, terminal controlado, OCR estruturado, Translation Engine, overlay, Modo
 Tradução, voz, visão contínua, memória, lembretes/scheduler, notícias, mixer de som, autostart,
 pesquisa em segundo plano, Modo Nerd, tela de Aplicativos, sprites/animação, estado
@@ -216,13 +220,11 @@ Documentação técnica (arquitetura, segurança, padrões de teste) em [`docs/`
 Silva está evoluindo de "conjunto de features" pra uma arquitetura de **Local AI Desktop Agent**
 (Agent Core, Tool Registry, Scheduler, Visão Contínua, Emotion Engine, Agent Engine com loop
 multi-passo (com gatilho de chat), controle de mouse/teclado, terminal controlado, Modo Tradução
-com overlay, Memória em camadas com filtro de relevância e Privacy Center já feitos acima). O que
-falta, em ordem:
+com overlay, Memória em camadas com filtro de relevância, Privacy Center e Modos do Silva já feitos
+acima). O que falta, em ordem:
 
 - **RAG local (documentos/código)**: mencionado como preparação futura na Memória em camadas —
   precisa de indexação/chunking/busca próprios, deliberadamente deixado fora por enquanto.
-- **Modos do Silva**: perfis prontos (Silencioso/Trabalho/Companhia/Foco/Privacidade/Jogo) que
-  ajustam várias configurações de uma vez, em vez de mexer em cada toggle separado.
 - **Attention Budget**: controle mais inteligente da frequência de fala espontânea, além dos
   timers fixos atuais.
 - **Voice UX / barge-in**: interromper a Silva no meio da fala não existe ainda — precisa de um

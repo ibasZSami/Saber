@@ -174,6 +174,10 @@ TRANSLATION_BATCH_COMPLETED = "TRANSLATION_BATCH_COMPLETED"
 # src/core/translation_mode.py).
 TRANSLATION_MODE_STATE_CHANGED = "TRANSLATION_MODE_STATE_CHANGED"
 
+# Modos do Silva (src/core/silva_modes.py) — kwargs: mode: str, one of
+# SILVA_MODES' keys.
+SILVA_MODE_APPLIED = "SILVA_MODE_APPLIED"
+
 # Fired by TranslationMode from its background translation-worker thread
 # once a batch comes back — the actual OverlayWindow.set_blocks() call must
 # happen on the GUI thread, so this is routed through EventBus's own

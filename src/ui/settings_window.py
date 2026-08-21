@@ -8,6 +8,7 @@ from src.core import autostart
 from src.core.diagnostics import format_report, run_diagnostics
 from src.core.activity_log import format_activity_log
 from src.core.privacy_summary import format_privacy_summary
+from src.core.silva_modes import MODE_DESCRIPTIONS, SILVA_MODES
 
 # (display label, edge_tts voice name)
 VOICE_OPTIONS = [
@@ -25,11 +26,15 @@ def _pitch_str_to_hz(pitch_str: str) -> int:
 class SettingsWindow(QWidget):
     def __init__(
         self, settings: Settings, permission_manager=None, policy_manager=None, activity_log=None,
-        terminal_tool_manager=None, silva_state=None, memory_manager=None,
+        terminal_tool_manager=None, silva_state=None, memory_manager=None, apply_silva_mode_fn=None,
     ):
         super().__init__()
         self.settings = settings
         self.activity_log = activity_log
+        # A callable (mode_name) -> bool, not the whole orchestrator — same
+        # injection style as AgentCore's confirm_fn, keeps this class testable
+        # without a real CompanionOrchestrator. See src/core/silva_modes.py.
+        self.apply_silva_mode_fn = apply_silva_mode_fn
         # Privacy Center tab — silva_state is the read-only "what's
         # happening right now" facade (src/core/silva_state.py), already
         # aggregating vision/voice/memory state from every subsystem;
@@ -85,6 +90,21 @@ class SettingsWindow(QWidget):
         g_layout.addRow(self.spontaneous_talk_chk)
         g_layout.addRow(self.autostart_chk)
         g_layout.addRow(self.nerd_mode_chk)
+
+        # Modos do Silva — presets that adjust several of the toggles above
+        # (plus vision/mic/translation) at once instead of one by one. Same
+        # names/effects as the "modo <nome>" voice/text command.
+        mode_row = QHBoxLayout()
+        self.mode_combo = QComboBox()
+        self.mode_combo.addItems([name.capitalize() for name in SILVA_MODES])
+        self.mode_combo.setToolTip(MODE_DESCRIPTIONS[next(iter(SILVA_MODES))])
+        self.mode_combo.currentTextChanged.connect(self._update_mode_tooltip)
+        apply_mode_btn = QPushButton("Aplicar Modo")
+        apply_mode_btn.clicked.connect(self._apply_selected_mode)
+        mode_row.addWidget(self.mode_combo)
+        mode_row.addWidget(apply_mode_btn)
+        g_layout.addRow("Modo do Silva:", mode_row)
+
         tabs.addTab(general_tab, "Geral")
 
         # Tab 2: IA & Provedor
@@ -417,6 +437,15 @@ class SettingsWindow(QWidget):
             self.terminal_tool_manager.allowlist.clear()
             self.terminal_tool_manager.allowlist.update(self.terminal_allowlist)
         self.close()
+
+    def _update_mode_tooltip(self, label: str):
+        self.mode_combo.setToolTip(MODE_DESCRIPTIONS.get(label.lower(), ""))
+
+    def _apply_selected_mode(self):
+        mode_name = self.mode_combo.currentText().lower()
+        if self.apply_silva_mode_fn is not None:
+            self.apply_silva_mode_fn(mode_name)
+        QMessageBox.information(self, "Modo do Silva", f'Modo "{self.mode_combo.currentText()}" aplicado.')
 
     def _refresh_privacy_summary(self):
         if self.silva_state is None:

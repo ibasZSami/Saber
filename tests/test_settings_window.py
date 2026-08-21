@@ -260,6 +260,40 @@ def _snapshot(**overrides):
     return base
 
 
+class TestSilvaModeSelector:
+    def test_combo_lists_every_mode_capitalized(self, tmp_path):
+        settings = _settings(tmp_path, allowlist={})
+        window = SettingsWindow(settings)
+        labels = {window.mode_combo.itemText(i) for i in range(window.mode_combo.count())}
+        assert labels == {"Silencioso", "Trabalho", "Companhia", "Foco", "Privacidade", "Jogo"}
+
+    def test_apply_calls_the_injected_function_with_the_lowercase_mode_name(self, tmp_path):
+        settings = _settings(tmp_path, allowlist={})
+        apply_fn = MagicMock()
+        window = SettingsWindow(settings, apply_silva_mode_fn=apply_fn)
+        window.mode_combo.setCurrentText("Jogo")
+
+        with patch("src.ui.settings_window.QMessageBox.information"):
+            window._apply_selected_mode()
+
+        apply_fn.assert_called_once_with("jogo")
+
+    def test_apply_without_a_function_does_not_raise(self, tmp_path):
+        settings = _settings(tmp_path, allowlist={})
+        window = SettingsWindow(settings, apply_silva_mode_fn=None)
+        window.mode_combo.setCurrentText("Foco")
+
+        with patch("src.ui.settings_window.QMessageBox.information"):
+            window._apply_selected_mode()  # should not raise
+
+    def test_tooltip_updates_when_selection_changes(self, tmp_path):
+        from src.core.silva_modes import MODE_DESCRIPTIONS
+        settings = _settings(tmp_path, allowlist={})
+        window = SettingsWindow(settings)
+        window.mode_combo.setCurrentText("Jogo")
+        assert window.mode_combo.toolTip() == MODE_DESCRIPTIONS["jogo"]
+
+
 class TestPrivacyTab:
     def test_without_silva_state_shows_a_fallback_message(self, tmp_path):
         settings = _settings(tmp_path, allowlist={})

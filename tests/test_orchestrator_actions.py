@@ -1059,6 +1059,108 @@ class TestMaybeToggleSpontaneousTalk:
         assert orch.spontaneous_talk_enabled is False
 
 
+class TestApplySilvaMode:
+    def _bare_orchestrator(self):
+        orch = CompanionOrchestrator.__new__(CompanionOrchestrator)
+        orch.settings = FakeSettings()
+        orch.event_bus = EventBus()
+        orch.nerd_mode_enabled = False
+        orch.spontaneous_talk_enabled = True
+        orch.set_full_vision = MagicMock()
+        orch.translation_mode = MagicMock()
+        orch.translation_mode.state = TranslationModeState.OFF
+        orch.system_audio_listener = MagicMock()
+        return orch
+
+    def test_unknown_mode_returns_false(self):
+        orch = self._bare_orchestrator()
+        assert orch.apply_silva_mode("inventado") is False
+
+    def test_known_mode_returns_true(self):
+        orch = self._bare_orchestrator()
+        assert orch.apply_silva_mode("foco") is True
+
+    def test_jogo_turns_vision_on_and_nerd_on(self):
+        orch = self._bare_orchestrator()
+        orch.apply_silva_mode("jogo")
+        orch.set_full_vision.assert_called_once_with(True)
+        assert orch.nerd_mode_enabled is True
+        assert orch.spontaneous_talk_enabled is True
+
+    def test_foco_turns_vision_off_and_spontaneous_off(self):
+        orch = self._bare_orchestrator()
+        orch.apply_silva_mode("foco")
+        orch.set_full_vision.assert_called_once_with(False)
+        assert orch.spontaneous_talk_enabled is False
+
+    def test_writes_microphone_enabled_to_settings(self):
+        orch = self._bare_orchestrator()
+        orch.apply_silva_mode("trabalho")
+        assert orch.settings.get("microphone_enabled") is True
+
+    def test_privacidade_stops_a_running_translation_mode(self):
+        orch = self._bare_orchestrator()
+        orch.translation_mode.state = TranslationModeState.RUNNING
+        orch.apply_silva_mode("privacidade")
+        orch.translation_mode.stop.assert_called_once()
+
+    def test_privacidade_stops_system_audio_listening(self):
+        orch = self._bare_orchestrator()
+        orch.apply_silva_mode("privacidade")
+        orch.system_audio_listener.set_enabled.assert_called_once_with(False)
+
+    def test_non_privacidade_mode_does_not_touch_translation_mode(self):
+        orch = self._bare_orchestrator()
+        orch.translation_mode.state = TranslationModeState.RUNNING
+        orch.apply_silva_mode("jogo")
+        orch.translation_mode.stop.assert_not_called()
+
+    def test_emits_silva_mode_applied(self):
+        orch = self._bare_orchestrator()
+        received = []
+        orch.event_bus.subscribe("SILVA_MODE_APPLIED", lambda **kw: received.append(kw))
+        orch.apply_silva_mode("jogo")
+        assert received == [{"mode": "jogo"}]
+
+    def test_silencioso_does_not_touch_vision_or_microphone(self):
+        """silencioso's preset only lists spontaneous_talk/nerd — vision and
+        mic must be left exactly as they were."""
+        orch = self._bare_orchestrator()
+        orch.apply_silva_mode("silencioso")
+        orch.set_full_vision.assert_not_called()
+        assert orch.settings.get("microphone_enabled") is None
+
+
+class TestMaybeApplySilvaMode:
+    def _bare_orchestrator(self):
+        orch = CompanionOrchestrator.__new__(CompanionOrchestrator)
+        orch.settings = FakeSettings()
+        orch.event_bus = EventBus()
+        orch.nerd_mode_enabled = False
+        orch.spontaneous_talk_enabled = True
+        orch.set_full_vision = MagicMock()
+        orch.translation_mode = MagicMock()
+        orch.translation_mode.state = TranslationModeState.OFF
+        orch.system_audio_listener = MagicMock()
+        return orch
+
+    def test_recognizes_a_mode_phrase(self):
+        orch = self._bare_orchestrator()
+        reply = orch._maybe_apply_silva_mode("Silva, modo jogo")
+        assert reply == "Modo Jogo ativado."
+        assert orch.nerd_mode_enabled is True
+
+    def test_unrelated_message_returns_none(self):
+        orch = self._bare_orchestrator()
+        assert orch._maybe_apply_silva_mode("oi, tudo bem?") is None
+
+    def test_does_not_misfire_on_modo_nerd(self):
+        """'modo nerd' is a different, pre-existing toggle — must not be
+        swallowed by the Silva-modes matcher (nerd isn't one of its names)."""
+        orch = self._bare_orchestrator()
+        assert orch._maybe_apply_silva_mode("vira modo nerd") is None
+
+
 class TestMaybeToggleNerdMode:
     def _bare_orchestrator(self):
         orch = CompanionOrchestrator.__new__(CompanionOrchestrator)
