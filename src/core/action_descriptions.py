@@ -38,6 +38,18 @@ def describe_action(action: str, action_param) -> str:
             args = action_param.get("args", "")
             return f'Silva quer rodar "{name}"{f" com argumentos: {args}" if args else ""} no terminal.'
         return "Silva quer rodar uma ferramenta de terminal."
+    if action == "browser_navigate":
+        url = action_param.get("url", "?") if isinstance(action_param, dict) else str(action_param)
+        return f"Silva quer abrir esta página no navegador controlado:\n{url}"
+    if action == "browser_click":
+        target = action_param.get("target", "?") if isinstance(action_param, dict) else str(action_param)
+        return f'Silva quer clicar em "{target}" na página aberta.'
+    if action == "browser_type":
+        if isinstance(action_param, dict):
+            target = action_param.get("target", "?")
+            text = action_param.get("text", "")
+            return f'Silva quer digitar "{text}" em "{target}" na página aberta.'
+        return "Silva quer digitar algo na página aberta."
     # Fallback for any future CONFIRM-tier tool that doesn't get bespoke copy
     # here yet — still informative, never blank.
     return f'Silva quer executar a ação "{action}" ({action_param!r}).'

@@ -47,6 +47,19 @@ class TestDescribeAction:
         text = describe_action("run_terminal_tool", {"name": "nmap"})
         assert "nmap" in text
 
+    def test_browser_navigate(self):
+        text = describe_action("browser_navigate", {"url": "example.com"})
+        assert "example.com" in text
+
+    def test_browser_click(self):
+        text = describe_action("browser_click", {"target": "Comprar agora"})
+        assert "Comprar agora" in text
+
+    def test_browser_type(self):
+        text = describe_action("browser_type", {"target": "#search", "text": "gatos"})
+        assert "#search" in text
+        assert "gatos" in text
+
     def test_unknown_action_falls_back_to_generic_text(self):
         text = describe_action("fly_to_moon", "now")
         assert "fly_to_moon" in text

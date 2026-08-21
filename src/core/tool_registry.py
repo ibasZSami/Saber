@@ -175,6 +175,29 @@ _TOOL_DEFS = [
         ),
         "parameters": {"name": "string", "args": "string (opcional)"},
     },
+    {
+        "name": "browser_navigate",
+        "tier": PermissionTier.CONFIRM,
+        "description": "Abre uma página num navegador real controlado (Playwright/Chromium), diferente de open_url — permite depois clicar/ler/digitar dentro dela.",
+        "parameters": {"url": "string"},
+    },
+    {
+        "name": "browser_click",
+        "tier": PermissionTier.CONFIRM,
+        "description": "Clica num elemento da página aberta pelo navegador controlado — pelo texto visível do elemento (ex: \"Adicionar ao carrinho\") ou um seletor CSS.",
+        "parameters": {"target": "string (texto visível ou seletor CSS)"},
+    },
+    {
+        "name": "browser_type",
+        "tier": PermissionTier.CONFIRM,
+        "description": "Digita texto num campo da página aberta pelo navegador controlado.",
+        "parameters": {"target": "string (texto visível ou seletor CSS)", "text": "string"},
+    },
+    {
+        "name": "browser_read",
+        "tier": PermissionTier.SAFE,
+        "description": "Lê o texto visível da página atualmente aberta no navegador controlado — use pra ver o resultado de uma navegação/clique antes do próximo passo.",
+    },
 ]
 
 
@@ -371,6 +394,36 @@ def _activate_translation_mode(translation_mode, action_param) -> bool:
     return True
 
 
+def _browser_navigate(browser_controller, action_param) -> bool:
+    url = action_param.get("url") if isinstance(action_param, dict) else action_param
+    if not isinstance(url, str) or not url.strip():
+        return False
+    return browser_controller.navigate(url.strip())
+
+
+def _browser_click(browser_controller, action_param) -> bool:
+    target = action_param.get("target") if isinstance(action_param, dict) else action_param
+    if not isinstance(target, str) or not target.strip():
+        return False
+    return browser_controller.click(target.strip())
+
+
+def _browser_type(browser_controller, action_param) -> bool:
+    if not isinstance(action_param, dict):
+        return False
+    target, text = action_param.get("target"), action_param.get("text")
+    if not isinstance(target, str) or not target.strip() or not isinstance(text, str):
+        return False
+    return browser_controller.type_text(target.strip(), text)
+
+
+def _browser_read(browser_controller, action_param):
+    text = browser_controller.read_text()
+    if text is None:
+        return False, None
+    return True, text
+
+
 # Tool names with a real dispatch handler — translate_screen is
 # deliberately absent (see _TOOL_DEFS' comment above).
 _DISPATCH_BUILDERS = {
@@ -390,6 +443,10 @@ _DISPATCH_BUILDERS = {
     "run_terminal_tool": lambda m: (lambda p: _run_terminal_tool(m["terminal_tool_manager"], p)),
     "observe_screen": lambda m: (lambda p: _observe_screen(m["screen_capture"], m["ocr_provider"], p)),
     "activate_translation_mode": lambda m: (lambda p: _activate_translation_mode(m["translation_mode"], p)),
+    "browser_navigate": lambda m: (lambda p: _browser_navigate(m["browser_controller"], p)),
+    "browser_click": lambda m: (lambda p: _browser_click(m["browser_controller"], p)),
+    "browser_type": lambda m: (lambda p: _browser_type(m["browser_controller"], p)),
+    "browser_read": lambda m: (lambda p: _browser_read(m["browser_controller"], p)),
 }
 
 
@@ -405,6 +462,7 @@ def build_default_registry(
     screen_capture=None,
     ocr_provider=None,
     translation_mode=None,
+    browser_controller=None,
 ) -> ToolRegistry:
     """Registers every tool from _TOOL_DEFS, binding a real dispatch handler for
     the ones that have one. Each dispatch guard reproduces the original
@@ -429,7 +487,9 @@ def build_default_registry(
 
     screen_capture+ocr_provider (both needed together) enable observe_screen's
     real dispatch; translation_mode enables activate_translation_mode's — see
-    FASE 8."""
+    FASE 8. browser_controller gates browser_navigate/click/type/read the
+    same "no real instance, no dispatch" way — Playwright/Chromium is a
+    heavy, opt-in dependency (see docs/ARCHITECTURE.md)."""
     if audio_mixer_manager is None:
         from src.desktop.audio_mixer import AudioMixerManager
         audio_mixer_manager = AudioMixerManager()
@@ -445,6 +505,7 @@ def build_default_registry(
         "screen_capture": screen_capture,
         "ocr_provider": ocr_provider,
         "translation_mode": translation_mode,
+        "browser_controller": browser_controller,
     }
     registry = ToolRegistry()
     for tool_def in _TOOL_DEFS:
@@ -460,9 +521,12 @@ def build_default_registry(
         terminal_deps_missing = name == "run_terminal_tool" and terminal_tool_manager is None
         observe_deps_missing = name == "observe_screen" and (screen_capture is None or ocr_provider is None)
         translation_mode_deps_missing = name == "activate_translation_mode" and translation_mode is None
+        browser_deps_missing = name in (
+            "browser_navigate", "browser_click", "browser_type", "browser_read",
+        ) and browser_controller is None
         deps_missing = (
             research_deps_missing or reminder_deps_missing or input_deps_missing or terminal_deps_missing
-            or observe_deps_missing or translation_mode_deps_missing
+            or observe_deps_missing or translation_mode_deps_missing or browser_deps_missing
         )
         dispatch = build_dispatch(managers) if build_dispatch and not deps_missing else None
         registry.register(ToolSpec(

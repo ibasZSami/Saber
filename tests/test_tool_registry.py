@@ -488,6 +488,93 @@ class TestActivateTranslationModeDispatch:
         assert registry.get("activate_translation_mode").dispatch is None
 
 
+class TestBrowserDispatch:
+    def _registry(self):
+        action_manager, memory_manager = MagicMock(), MagicMock()
+        browser_controller = MagicMock()
+        registry = build_default_registry(action_manager, memory_manager, browser_controller=browser_controller)
+        return registry, browser_controller
+
+    def test_navigate_calls_browser_controller(self):
+        registry, browser_controller = self._registry()
+        browser_controller.navigate.return_value = True
+
+        result = registry.get("browser_navigate").dispatch({"url": "example.com"})
+
+        assert result is True
+        browser_controller.navigate.assert_called_once_with("example.com")
+
+    def test_navigate_accepts_bare_string_param(self):
+        registry, browser_controller = self._registry()
+        browser_controller.navigate.return_value = True
+        registry.get("browser_navigate").dispatch("example.com")
+        browser_controller.navigate.assert_called_once_with("example.com")
+
+    def test_navigate_rejects_empty_url(self):
+        registry, browser_controller = self._registry()
+        result = registry.get("browser_navigate").dispatch({"url": ""})
+        assert result is False
+        browser_controller.navigate.assert_not_called()
+
+    def test_click_calls_browser_controller(self):
+        registry, browser_controller = self._registry()
+        browser_controller.click.return_value = True
+
+        result = registry.get("browser_click").dispatch({"target": "Comprar"})
+
+        assert result is True
+        browser_controller.click.assert_called_once_with("Comprar")
+
+    def test_click_rejects_missing_target(self):
+        registry, browser_controller = self._registry()
+        result = registry.get("browser_click").dispatch({})
+        assert result is False
+        browser_controller.click.assert_not_called()
+
+    def test_type_calls_browser_controller(self):
+        registry, browser_controller = self._registry()
+        browser_controller.type_text.return_value = True
+
+        result = registry.get("browser_type").dispatch({"target": "#search", "text": "gatos"})
+
+        assert result is True
+        browser_controller.type_text.assert_called_once_with("#search", "gatos")
+
+    def test_type_rejects_missing_text(self):
+        registry, browser_controller = self._registry()
+        result = registry.get("browser_type").dispatch({"target": "#search"})
+        assert result is False
+        browser_controller.type_text.assert_not_called()
+
+    def test_type_rejects_non_dict_param(self):
+        registry, browser_controller = self._registry()
+        result = registry.get("browser_type").dispatch("not a dict")
+        assert result is False
+        browser_controller.type_text.assert_not_called()
+
+    def test_read_returns_the_page_text_as_detail(self):
+        registry, browser_controller = self._registry()
+        browser_controller.read_text.return_value = "Preço: R$50"
+
+        result = registry.get("browser_read").dispatch("")
+
+        assert result == (True, "Preço: R$50")
+
+    def test_read_failure_returns_false_none(self):
+        registry, browser_controller = self._registry()
+        browser_controller.read_text.return_value = None
+
+        result = registry.get("browser_read").dispatch("")
+
+        assert result == (False, None)
+
+    def test_no_dispatch_when_browser_controller_not_provided(self):
+        action_manager, memory_manager = MagicMock(), MagicMock()
+        registry = build_default_registry(action_manager, memory_manager)
+        for name in ("browser_navigate", "browser_click", "browser_type", "browser_read"):
+            assert registry.get(name).dispatch is None
+
+
 class TestAsToolsSchemaDispatchableOnly:
     def test_excludes_tools_without_a_dispatch_handler(self):
         action_manager, memory_manager = MagicMock(), MagicMock()
@@ -535,7 +622,7 @@ class TestDescribeTools:
             "observe_screen", "translate_screen", "open_application", "close_application",
             "open_url", "search_web", "remember", "forget_memory", "set_app_volume", "research_topic",
             "create_reminder", "mouse_click", "mouse_move", "type_text", "press_key", "run_terminal_tool",
-            "activate_translation_mode",
+            "activate_translation_mode", "browser_navigate", "browser_click", "browser_type", "browser_read",
         }
         assert all("description" in entry for entry in schema)
 

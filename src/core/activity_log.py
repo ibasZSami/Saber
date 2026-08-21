@@ -48,6 +48,11 @@ def _describe_action_result(action, action_param, rejected: bool) -> str:
     if action == "run_terminal_tool":
         name = action_param.get("name", "?") if isinstance(action_param, dict) else "?"
         return f'{"Não rodou" if rejected else "Rodou"} "{name}" no terminal.'
+    if action == "browser_navigate":
+        url = action_param.get("url", "?") if isinstance(action_param, dict) else action_param
+        return f'{"Não abriu" if rejected else "Abriu"} "{url}" no navegador controlado.'
+    if action in ("browser_click", "browser_type"):
+        return f'{"Não controlou" if rejected else "Controlou"} o navegador ({action}).'
     return f'{"Não executou" if rejected else "Executou"} a ação "{action}".'
 
 

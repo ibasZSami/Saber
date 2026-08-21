@@ -229,8 +229,14 @@ class SettingsWindow(QWidget):
         self.terminal_tool_chk = QCheckBox("Permitir rodar programas de terminal pré-aprovados (sempre pede confirmação)")
         self.terminal_tool_chk.setChecked(self.settings.get("terminal_tool_enabled", False))
         self.terminal_tool_chk.setToolTip("Requer reiniciar a Silva para ligar ou desligar de verdade.")
+        self.browser_control_chk = QCheckBox("Permitir navegador controlado — clicar/ler/digitar em páginas (sempre pede confirmação)")
+        self.browser_control_chk.setChecked(self.settings.get("browser_control_enabled", False))
+        self.browser_control_chk.setToolTip(
+            "Abre um Chromium de verdade (Playwright). Requer reiniciar a Silva para ligar ou desligar."
+        )
         agent_layout.addWidget(self.input_control_chk)
         agent_layout.addWidget(self.terminal_tool_chk)
+        agent_layout.addWidget(self.browser_control_chk)
 
         agent_layout.addWidget(QLabel(
             "Programas que a Silva pode rodar no terminal (nada fora desta lista\n"
@@ -436,6 +442,7 @@ class SettingsWindow(QWidget):
         if self.terminal_tool_manager is not None:
             self.terminal_tool_manager.allowlist.clear()
             self.terminal_tool_manager.allowlist.update(self.terminal_allowlist)
+        self.settings.set("browser_control_enabled", self.browser_control_chk.isChecked())
         self.close()
 
     def _update_mode_tooltip(self, label: str):

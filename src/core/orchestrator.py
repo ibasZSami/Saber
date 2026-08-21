@@ -25,6 +25,7 @@ from src.core.task_manager import TaskManager
 from src.core.agent_engine import AgentEngine
 from src.desktop.input_control import InputController
 from src.desktop.terminal_tool import TerminalToolManager
+from src.desktop.browser_control import BrowserController
 from src.core.translation_mode import TranslationMode, TranslationModeState
 from src.vision.translation_engine import TranslationEngine
 from src.memory.database import Database
@@ -326,6 +327,15 @@ class CompanionOrchestrator:
             TerminalToolManager(self.settings.get("terminal_allowlist", {}), self.event_bus)
             if self.settings.get("terminal_tool_enabled", False) else None
         )
+        # Real browser automation (Playwright/Chromium) — same "no dispatch
+        # without a real instance" gating as mouse/keyboard/terminal above.
+        # Constructing this launches a real Chromium process right away
+        # (BrowserController's own __init__ blocks briefly on it) — a real,
+        # known startup cost, paid only when this switch is explicitly on.
+        # See src/desktop/browser_control.py.
+        self.browser_controller = (
+            BrowserController() if self.settings.get("browser_control_enabled", False) else None
+        )
 
         # Tool dispatch (SAFE/CONFIRM/DANGEROUS tiers) — see src/core/tool_registry.py
         # and src/core/agent_core.py for the FASE 2 Agent Core extraction.
@@ -334,6 +344,7 @@ class CompanionOrchestrator:
             self.background_task_manager, self.research_manager, self.scheduler,
             self.input_controller, self.terminal_tool_manager,
             self.screen_capture, self.translation_manager.ocr, self.translation_mode,
+            self.browser_controller,
         )
         self.agent_core = AgentCore(
             self.tool_registry, self.event_bus, confirm_fn=self.confirm_fn, policy_manager=self.policy_manager,

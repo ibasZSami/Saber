@@ -39,6 +39,18 @@ class TestActionEvents:
         bus.emit("ACTION_EXECUTED", action="mouse_click", action_param={"x": 1, "y": 2})
         assert "mouse_click" in log.entries()[-1].text
 
+    def test_browser_navigate_is_logged_with_the_url(self):
+        bus = _bus()
+        log = ActivityLog(bus)
+        bus.emit("ACTION_EXECUTED", action="browser_navigate", action_param={"url": "example.com"})
+        assert '"example.com"' in log.entries()[-1].text
+
+    def test_browser_click_is_logged(self):
+        bus = _bus()
+        log = ActivityLog(bus)
+        bus.emit("ACTION_EXECUTED", action="browser_click", action_param={"target": "Comprar"})
+        assert "browser_click" in log.entries()[-1].text
+
     def test_run_terminal_tool_is_logged_with_the_binary_name(self):
         bus = _bus()
         log = ActivityLog(bus)

@@ -193,23 +193,30 @@ class TestAgentTab:
         window = SettingsWindow(settings)
         assert window.input_control_chk.isChecked() is False
         assert window.terminal_tool_chk.isChecked() is False
+        assert window.browser_control_chk.isChecked() is False
 
     def test_master_switches_reflect_saved_settings(self, tmp_path):
-        settings = _settings(tmp_path, allowlist={}, input_control_enabled=True, terminal_tool_enabled=True)
+        settings = _settings(
+            tmp_path, allowlist={}, input_control_enabled=True, terminal_tool_enabled=True,
+            browser_control_enabled=True,
+        )
         window = SettingsWindow(settings)
         assert window.input_control_chk.isChecked() is True
         assert window.terminal_tool_chk.isChecked() is True
+        assert window.browser_control_chk.isChecked() is True
 
     def test_save_persists_master_switches(self, tmp_path):
         settings = _settings(tmp_path, allowlist={})
         window = SettingsWindow(settings)
         window.input_control_chk.setChecked(True)
         window.terminal_tool_chk.setChecked(True)
+        window.browser_control_chk.setChecked(True)
 
         window._save()
 
         assert settings.get("input_control_enabled") is True
         assert settings.get("terminal_tool_enabled") is True
+        assert settings.get("browser_control_enabled") is True
 
     def test_add_and_remove_terminal_tool(self, tmp_path):
         settings = _settings(tmp_path, allowlist={})

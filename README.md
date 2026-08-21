@@ -118,6 +118,9 @@ Toda ação passa por um `ToolRegistry` central com tier de permissão (`SAFE` /
 - **Terminal controlado** — roda só binários de uma allowlist própria (**vazia por padrão**,
   gerenciável em Configurações → Agente), sem shell livre, argumentos validados, saída capada e
   logada. Pensado pra ferramentas como Nmap no seu próprio PC, nunca um shell aberto.
+- **Navegador controlado** (Playwright/Chromium) — **desligado por padrão**, mesmo interruptor
+  mestre. Diferente de abrir uma URL: clica em elementos pelo texto visível, digita em campos e lê
+  o texto real da página — pra tarefas tipo "abre o site, procura o preço e me diz quanto é".
 
 `CONFIRM` hoje pede confirmação de verdade (diálogo real, com opção de sempre permitir/sempre
 bloquear/só essa vez) antes de executar. `DANGEROUS` existe como tier reservado; nenhuma ação usa
@@ -209,9 +212,10 @@ voz e permissões iniciais.
 pytest tests/ --cov=src --cov-report=term-missing
 ```
 
-980 testes (91% de cobertura) cobrindo orquestrador, ferramentas/permissões, Agent Engine (task
-loop), mouse/teclado, terminal controlado, OCR estruturado, Translation Engine, overlay, Modo
-Tradução, voz, visão contínua, memória, lembretes/scheduler, notícias, mixer de som, autostart,
+1015 testes (91% de cobertura) cobrindo orquestrador, ferramentas/permissões, Agent Engine (task
+loop), mouse/teclado, terminal controlado, navegador controlado, OCR estruturado, Translation
+Engine, overlay, Modo Tradução, voz, visão contínua, memória, lembretes/scheduler, notícias, mixer
+de som, autostart,
 pesquisa em segundo plano, Modo Nerd, tela de Aplicativos, sprites/animação, estado
 funcional/emoção, diagnóstico, atividade, configuração, EventBus, confirmação de permissão e
 segurança dedicada. Roda automaticamente a cada push/PR (ver badge no topo).
@@ -226,14 +230,10 @@ Silva está evoluindo de "conjunto de features" pra uma arquitetura de **Local A
 (Agent Core, Tool Registry, Scheduler, Visão Contínua, Emotion Engine, Agent Engine com loop
 multi-passo (com gatilho de chat), controle de mouse/teclado, terminal controlado, Modo Tradução
 com overlay, Memória em camadas com filtro de relevância, Privacy Center, Modos do Silva,
-Attention Budget e barge-in já feitos acima). O que falta, em ordem:
+Attention Budget, barge-in e Browser real (Playwright) já feitos acima). O que falta, em ordem:
 
 - **RAG local (documentos/código)**: mencionado como preparação futura na Memória em camadas —
   precisa de indexação/chunking/busca próprios, deliberadamente deixado fora por enquanto.
-- **Browser real (nível DOM)**: "abrir navegador e pesquisar X" funciona (`open_url`/`search_web`),
-  mas clicar/ler dentro de uma página específica precisaria de Playwright/Selenium — dependência
-  pesada (baixa um Chromium inteiro), deixada de fora de propósito por enquanto. Mouse/teclado já
-  cobrem parte disso manualmente quando habilitados.
 - **Plugins**: nenhuma estrutura de plugin existe ainda — planejado como interface simples
   (`plugins/discord/`, `plugins/spotify/`, etc.), não uma prioridade imediata.
 - **Empacotamento**: hoje roda só via `install.bat`/`run.bat` + Python — gerar um instalador

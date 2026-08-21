@@ -10,6 +10,10 @@ python -m pip install --upgrade pip
 pip install -r requirements.txt
 
 echo.
+echo Baixando o Chromium para automacao real de navegador (Playwright)...
+python -m playwright install chromium
+
+echo.
 echo ========================================================
 echo   Instalacao concluida com sucesso!
 echo   Execute run.bat para iniciar o Silva.

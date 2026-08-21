@@ -130,15 +130,15 @@ bool, inalterado, pra quem já usa esse contrato. `AgentEngine` usa
 `execute_with_detail()` — a observação de cada passo já é o resultado de
 verdade quando existe, não só "executou com sucesso".
 
-## Ferramentas de maior risco (FASE 3): mouse/teclado e terminal
+## Ferramentas de maior risco: mouse/teclado, terminal e navegador
 
-Duas categorias novas, cada uma atrás do próprio interruptor mestre em
-Configurações → Agente (`input_control_enabled` / `terminal_tool_enabled`),
-**desligadas por padrão**. Enquanto desligadas, `build_default_registry`
-nem registra um dispatch pra elas — a IA não só não consegue executar, ela
-não é sequer informada de que a ferramenta existe (ver
-`ToolRegistry.as_tools_schema(dispatchable_only=True)`, usado pelo Agent
-Engine).
+Três categorias, cada uma atrás do próprio interruptor mestre em
+Configurações → Agente (`input_control_enabled` / `terminal_tool_enabled` /
+`browser_control_enabled`), **desligadas por padrão**. Enquanto desligadas,
+`build_default_registry` nem registra um dispatch pra elas — a IA não só
+não consegue executar, ela não é sequer informada de que a ferramenta
+existe (ver `ToolRegistry.as_tools_schema(dispatchable_only=True)`, usado
+pelo Agent Engine).
 
 - **`src/desktop/input_control.py`** (`InputController`, via `pynput`):
   `click`/`move`/`type_text`/`press_key`. Tier **CONFIRM** — cada uso pede
@@ -153,11 +153,22 @@ Engine).
   completa — separado do `ACTION_EXECUTED` genérico (que continua só bool)
   porque um simples sucesso/fracasso perderia o resultado real de rodar
   algo como Nmap.
-
-"Browser" do pedido original é coberto pelas ferramentas já existentes
-(`open_url`/`search_web`) combinadas com mouse/teclado quando habilitado —
-automação de DOM (Playwright/Selenium) não foi adicionada nesta fase:
-dependência pesada, deixada como decisão futura explícita.
+- **`src/desktop/browser_control.py`** (`BrowserController`, Playwright +
+  Chromium): `navigate`/`click`/`type_text`/`read_text` — diferente de
+  `open_url`, controla um navegador de verdade que fica aberto entre
+  chamadas, permitindo clicar/ler/preencher dentro de uma página
+  específica. A API síncrona do Playwright é presa à thread que a criou, e
+  as ferramentas do Silva são despachadas de threads variadas (worker do
+  chat, loop do Agent Engine) — por isso `BrowserController` roda numa
+  **thread dedicada própria** com uma fila de comandos: cada chamada é
+  entregue a essa thread e quem chamou espera o resultado, nunca toca o
+  objeto do Playwright direto de fora dela. `click`/`type_text` recebem um
+  `target` que só é tratado como seletor CSS se *parecer* um (`#id`,
+  `.classe`, `tag`); caso contrário é tratado como texto visível
+  (`page.get_by_text`), porque a IA só enxerga texto renderizado
+  (`read_text`), nunca o HTML — não tem como fornecer um seletor de
+  verdade. `browser_read` devolve o texto como `detail` via
+  `execute_with_detail` (FASE 8), igual `observe_screen`/terminal.
 
 ## Visão (`src/vision/`)
 
