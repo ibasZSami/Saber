@@ -218,6 +218,21 @@ class TestLaunchPaths:
             cmd = autostart._launch_command()
         assert "pythonw.exe" not in cmd
 
+    def test_frozen_build_launches_the_exe_directly_with_no_main_py_argument(self):
+        """In a PyInstaller build there's no main.py to point a separate
+        interpreter at — sys.executable IS Silva.exe. Regression guard for a
+        real bug: unpatched, this used to produce '"Silva.exe" "...main.py"',
+        which fails since a frozen build ships no main.py at all."""
+        with patch("sys.frozen", True, create=True), \
+                patch("sys.executable", r"C:\Program Files\Silva\Silva.exe"):
+            interpreter, main_py = autostart._launch_paths()
+            cmd = autostart._launch_command()
+
+        assert interpreter == r"C:\Program Files\Silva\Silva.exe"
+        assert main_py is None
+        assert cmd == r'"C:\Program Files\Silva\Silva.exe"'
+        assert "main.py" not in cmd
+
 
 class TestTaskXml:
     def test_includes_logon_and_session_unlock_triggers(self):
@@ -238,3 +253,12 @@ class TestTaskXml:
             xml = autostart._task_xml()
         assert "pythonw.exe" in xml
         assert "main.py" in xml
+
+    def test_frozen_build_omits_the_arguments_element(self):
+        with patch("sys.frozen", True, create=True), \
+                patch("sys.executable", r"C:\Program Files\Silva\Silva.exe"):
+            xml = autostart._task_xml()
+
+        assert "Silva.exe" in xml
+        assert "<Arguments>" not in xml
+        assert "main.py" not in xml

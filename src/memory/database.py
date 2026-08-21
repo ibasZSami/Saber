@@ -2,9 +2,14 @@ import sqlite3
 import os
 from typing import List, Dict
 
+from src.config.settings import PROJECT_ROOT
+
+DEFAULT_DB_PATH = str(PROJECT_ROOT / "data" / "memory" / "memory.db")
+
+
 class Database:
-    def __init__(self, db_path: str = r"data\memory\memory.db"):
-        self.db_path = db_path
+    def __init__(self, db_path: str = None):
+        self.db_path = db_path or DEFAULT_DB_PATH
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
         self.init_db()
 

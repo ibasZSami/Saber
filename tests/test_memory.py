@@ -1,4 +1,5 @@
-from src.memory.database import Database
+from src.config.settings import PROJECT_ROOT
+from src.memory.database import DEFAULT_DB_PATH, Database
 from src.memory.manager import MemoryManager
 
 
@@ -9,6 +10,18 @@ def _capture(event_bus, event_type):
 
 
 class TestDatabase:
+    def test_default_db_path_is_anchored_to_project_root_not_cwd(self):
+        """Regression guard: the old default was the bare relative string
+        "data\\memory\\memory.db", which silently wrote wherever the process's
+        CWD happened to be — wrong for a frozen build launched by a Start
+        Menu shortcut with a CWD nothing guarantees. See packaging/README.md."""
+        assert DEFAULT_DB_PATH == str(PROJECT_ROOT / "data" / "memory" / "memory.db")
+
+    def test_no_arg_constructor_uses_the_default_path(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("src.memory.database.DEFAULT_DB_PATH", str(tmp_path / "data" / "memory" / "memory.db"))
+        db = Database()
+        assert db.db_path == str(tmp_path / "data" / "memory" / "memory.db")
+
     def test_set_and_get_memory(self, tmp_path):
         db = Database(db_path=str(tmp_path / "mem.db"))
         db.set_memory("cor_favorita", "roxo")

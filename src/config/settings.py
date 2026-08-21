@@ -1,11 +1,25 @@
 import os
+import sys
 import json
 import logging
 from pathlib import Path
 
-# Ship-with-repo sprite copy, so a fresh clone works without depending on an
-# external personal folder (e.g. a user's Downloads directory) that may move or be deleted.
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+def _compute_project_root() -> Path:
+    """Ship-with-repo sprite copy, so a fresh clone works without depending on
+    an external personal folder (e.g. a user's Downloads directory) that may
+    move or be deleted.
+
+    A PyInstaller-frozen build has no `src/` tree to walk up from — __file__
+    resolves to a path inside the bundled _internal folder, three parents up
+    from which is NOT the install directory. sys.frozen + sys.executable's
+    own folder is the correct anchor in that case; the source-tree walk-up is
+    only valid unfrozen."""
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent.parent.parent
+
+
+PROJECT_ROOT = _compute_project_root()
 DEFAULT_ASSETS_PATH = str(PROJECT_ROOT / "extracted_assets" / "silva")
 
 try:

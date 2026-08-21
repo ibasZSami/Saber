@@ -26,7 +26,13 @@ REGISTRY_VALUE_NAME = "Silva"
 def _launch_paths():
     """(interpreter, main.py path) using the same venv/interpreter this
     process is already running under — pythonw.exe when available (no console
-    window), falling back to the current interpreter otherwise."""
+    window), falling back to the current interpreter otherwise.
+
+    In a PyInstaller-frozen build, sys.executable IS Silva.exe — a
+    self-contained launcher with no separate main.py to point it at — so
+    main_py is None and the caller invokes the exe with no arguments."""
+    if getattr(sys, "frozen", False):
+        return sys.executable, None
     project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     main_py = os.path.join(project_root, "main.py")
     python_dir = os.path.dirname(sys.executable)
@@ -39,6 +45,8 @@ def _launch_command() -> str:
     """Kept for backwards compatibility with anything still reading it (and
     tests) — same quoted "interpreter" "main.py" shape the old Run-key value used."""
     interpreter, main_py = _launch_paths()
+    if main_py is None:
+        return f'"{interpreter}"'
     return f'"{interpreter}" "{main_py}"'
 
 
@@ -49,6 +57,7 @@ def _task_xml() -> str:
     MultipleInstancesPolicy=IgnoreNew stops the unlock trigger from spawning a
     second Silva if one from an earlier logon/unlock is still running."""
     interpreter, main_py = _launch_paths()
+    arguments_xml = f'\n      <Arguments>"{main_py}"</Arguments>' if main_py else ""
     return f"""<?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <Triggers>
@@ -74,8 +83,7 @@ def _task_xml() -> str:
   </Settings>
   <Actions Context="Author">
     <Exec>
-      <Command>{interpreter}</Command>
-      <Arguments>"{main_py}"</Arguments>
+      <Command>{interpreter}</Command>{arguments_xml}
     </Exec>
   </Actions>
 </Task>

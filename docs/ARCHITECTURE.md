@@ -331,6 +331,43 @@ deixada de fora desta passada.
 Exemplo funcional em `plugins/example_dice.py` (ferramenta `roll_dice`);
 guia completo em `plugins/README.md`.
 
+## Empacotamento
+
+`packaging/silva.spec` (PyInstaller) + `packaging/silva.iss` (Inno Setup) —
+transforma o código-fonte num `Silva-Setup.exe` real. Passo a passo completo
+em `packaging/README.md`; aqui só as decisões que afetam o resto do código.
+
+**Layout onedir achatado** (`contents_directory="."` no `.spec`): PyInstaller
+6+ por padrão joga tudo exceto o `.exe` numa subpasta `_internal`. Isso quebra
+a premissa deste projeto de que dados do usuário (`config.json`, `data/`)
+vivem *ao lado* do executável — por isso o `.spec` força de volta o layout
+plano de antes da 6.0, tudo direto em `dist/Silva/`.
+
+**Resolução de caminho frozen-aware** (`src/config/settings.py`): `PROJECT_ROOT`
+normalmente sobe três níveis a partir de `__file__` (`src/config/` → raiz do
+repo) — não funciona num build congelado, onde não existe árvore `src/`.
+Detecta via `sys.frozen` e, nesse caso, usa `Path(sys.executable).resolve().parent`
+(a pasta onde `Silva.exe` está) como raiz. `Database` (`src/memory/database.py`)
+e o `plugins_dir` do orchestrator importam esse mesmo `PROJECT_ROOT` em vez de
+recalcular `__file__`-based paths por conta própria, pra não duplicar (e
+divergir) essa lógica.
+
+**Autostart num build congelado** (`src/core/autostart.py`): a Scheduled
+Task/Run-key que a própria Silva gerencia (aba Configurações) originalmente
+montava o comando de lançamento como `"python.exe" "main.py"` — não existe
+`main.py` nem `python.exe` separado num build congelado, só `Silva.exe`.
+`_launch_paths()` detecta `sys.frozen` e usa `sys.executable` sozinho, sem
+argumento. Por isso o instalador Inno Setup **não** oferece sua própria opção
+de autostart — duplicaria o mecanismo que a Silva já gerencia por conta
+própria e podia registrar os dois, lançando duas instâncias no logon.
+
+**O que fica fora do instalador**: `config.json` e `data/` não são
+empacotados — a Silva já cria os dois sozinha na primeira execução, então
+cada instalação parte de config limpo em vez de herdar caminhos absolutos da
+máquina onde o build foi gerado. Tesseract-OCR e o Chromium do Playwright
+continuam instalados à parte (não são pacotes pip, entram centenas de MB
+para uma minoria dos usuários) — mesmo tradeoff que `install.bat` já fazia.
+
 ## Observabilidade local
 
 - `ActivityLog` (`src/core/activity_log.py`): histórico amigável de ações

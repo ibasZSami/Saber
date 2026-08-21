@@ -1,8 +1,9 @@
 import json
 import os
+import sys
 from unittest.mock import patch
 
-from src.config.settings import Settings
+from src.config.settings import Settings, _compute_project_root
 
 
 class TestSettings:
@@ -134,3 +135,42 @@ class TestSetApiKey:
         assert not (tmp_path / ".env").exists()
         stored = json.loads(config_path.read_text(encoding="utf-8"))
         assert stored["api_key"] == "some-key"
+
+
+class TestComputeProjectRoot:
+    """PROJECT_ROOT anchors every shipped-asset/data path in the app — wrong
+    in a frozen build and nothing (sprites, plugins, config.json, the memory
+    DB) can find its files. See packaging/README.md and the frozen-mode note
+    in src/config/settings.py."""
+
+    def test_unfrozen_walks_up_from_this_file_to_the_repo_root(self):
+        with patch.object(sys, "frozen", False, create=True):
+            root = _compute_project_root()
+
+        assert (root / "main.py").exists()
+        assert (root / "extracted_assets").exists()
+
+    def test_frozen_uses_the_directory_containing_the_executable(self, tmp_path):
+        fake_exe = tmp_path / "Silva.exe"
+        fake_exe.write_text("", encoding="utf-8")
+
+        with patch.object(sys, "frozen", True, create=True), \
+                patch.object(sys, "executable", str(fake_exe)):
+            root = _compute_project_root()
+
+        assert root == tmp_path.resolve()
+
+    def test_frozen_root_is_independent_of_this_source_files_location(self, tmp_path):
+        """The frozen branch must never fall through to the __file__ walk-up —
+        that would resolve to somewhere inside a PyInstaller _internal folder,
+        not the directory the user actually installed Silva into."""
+        fake_exe = tmp_path / "nested" / "Silva.exe"
+        fake_exe.parent.mkdir()
+        fake_exe.write_text("", encoding="utf-8")
+
+        with patch.object(sys, "frozen", True, create=True), \
+                patch.object(sys, "executable", str(fake_exe)):
+            root = _compute_project_root()
+
+        assert root == (tmp_path / "nested").resolve()
+        assert "settings.py" not in str(root)

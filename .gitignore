@@ -6,3 +6,6 @@ data/
 config.json
 .coverage
 .pytest_cache/
+dist/
+build/
+packaging/build_log*.txt

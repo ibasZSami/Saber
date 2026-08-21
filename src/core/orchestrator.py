@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Optional
 from PySide6.QtCore import QTimer, QMetaObject, Qt, Q_ARG
 
-from src.config.settings import Settings, DEFAULT_ASSETS_PATH
+from src.config.settings import Settings, DEFAULT_ASSETS_PATH, PROJECT_ROOT
 from src.core.event_bus import (
     EventBus,
     GAME_STARTED, GAME_ENDED, APPLICATION_CHANGED, WINDOW_CHANGED, SCREEN_CHANGED,
@@ -356,7 +356,7 @@ class CompanionOrchestrator:
         # src/core/plugin_system.py's own security note). Loaded last, once
         # tool_registry/event_bus/settings all exist for a plugin's
         # register(context) to actually use.
-        plugins_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "plugins")
+        plugins_dir = os.path.join(str(PROJECT_ROOT), "plugins")
         self.plugin_manager = PluginManager(plugins_dir, self.tool_registry, self.event_bus, self.settings)
         if self.settings.get("plugins_enabled", False):
             self.plugin_manager.load_all()

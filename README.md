@@ -163,9 +163,16 @@ qualquer momento dá pra cancelar dizendo **"cancela a tarefa"**. Ver `docs/ARCH
 
 ## 🚀 Instalação no Windows
 
+**Via código-fonte** (para desenvolver ou usar direto do `main.py`):
 1. Certifique-se de ter o **Python 3.11+** instalado e adicionado ao `PATH`.
 2. Dê um duplo clique no arquivo `install.bat` para criar o ambiente virtual e instalar todas as
    dependências.
+
+**Via instalador** (`Silva-Setup.exe`, sem precisar de Python instalado): gerado a partir deste
+mesmo código com PyInstaller + Inno Setup — instruções completas em
+[`packaging/README.md`](packaging/README.md). Instala sem pedir admin, cria atalho no Menu
+Iniciar e desinstalador; Tesseract-OCR (tradução de tela) e o Chromium do Playwright (navegador
+real) continuam sendo instalados à parte, como já é hoje via `install.bat`.
 
 ## 🎮 Execução
 
@@ -217,7 +224,7 @@ voz e permissões iniciais.
 pytest tests/ --cov=src --cov-report=term-missing
 ```
 
-1026 testes (91% de cobertura) cobrindo orquestrador, ferramentas/permissões, Agent Engine (task
+1033 testes (92% de cobertura) cobrindo orquestrador, ferramentas/permissões, Agent Engine (task
 loop), mouse/teclado, terminal controlado, navegador controlado, plugins, OCR estruturado,
 Translation Engine, overlay, Modo Tradução, voz, visão contínua, memória, lembretes/scheduler,
 notícias, mixer de som, autostart,
@@ -235,10 +242,8 @@ Silva está evoluindo de "conjunto de features" pra uma arquitetura de **Local A
 (Agent Core, Tool Registry, Scheduler, Visão Contínua, Emotion Engine, Agent Engine com loop
 multi-passo (com gatilho de chat), controle de mouse/teclado, terminal controlado, Modo Tradução
 com overlay, Memória em camadas com filtro de relevância, Privacy Center, Modos do Silva,
-Attention Budget, barge-in, Browser real (Playwright) e Plugins já feitos acima). O que falta,
-em ordem:
+Attention Budget, barge-in, Browser real (Playwright), Plugins e Empacotamento (instalador
+Windows) já feitos acima). O que falta, em ordem:
 
 - **RAG local (documentos/código)**: mencionado como preparação futura na Memória em camadas —
   precisa de indexação/chunking/busca próprios, deliberadamente deixado fora por enquanto.
-- **Empacotamento**: hoje roda só via `install.bat`/`run.bat` + Python — gerar um instalador
-  (`Silva-Setup.exe`) fica pra depois, sem prioridade sobre o resto.
