@@ -17,6 +17,7 @@ from src.core.event_bus import (
 from src.core.state_machine import StateMachine
 from src.core.silva_state import SilvaState
 from src.core.activity_log import ActivityLog
+from src.vision.continuous_vision import ContinuousVisionBuffer, VisionMode
 from src.core.tool_registry import build_default_registry
 from src.core.agent_core import AgentCore
 from src.core.news import NewsProvider
@@ -212,6 +213,9 @@ class CompanionOrchestrator:
         self.screen_capture = ScreenCapture()
         self.change_detector = ScreenChangeDetector()
         self.translation_manager = ScreenTranslationManager(self.screen_capture)
+        # FASE 10: rolling metadata-only buffer feeding AWARENESS-mode
+        # structured context (see _compute_vision_mode, _check_screen_and_app).
+        self.vision_buffer = ContinuousVisionBuffer()
 
         # Initialize Desktop Actions
         self.window_manager = WindowManager()
@@ -377,6 +381,26 @@ class CompanionOrchestrator:
         self.set_vision_monitoring(enabled)
         self.event_bus.emit(VISION_MONITORING_TOGGLED, enabled=enabled)
 
+    def _compute_vision_mode(self) -> VisionMode:
+        """FASE 10: explicit modes instead of a single on/off toggle.
+
+        Backward compatible by construction: unless the new optional
+        `screen_vision_mode` setting is explicitly set, this derives OFF/
+        ACTIVE from the same two legacy toggles exactly as the code used to
+        check inline — private_mode=True ("Nenhuma captura ou OCR" per its
+        own UI label) means OFF, full stop, same as before. CONTEXT and
+        AWARENESS are new capabilities only reachable by explicitly setting
+        screen_vision_mode, so no existing install's behavior changes."""
+        explicit = self.settings.get("screen_vision_mode", None)
+        if explicit:
+            try:
+                return VisionMode(explicit)
+            except ValueError:
+                logging.warning(f"Invalid screen_vision_mode {explicit!r}; falling back to legacy toggles.")
+        if not self.settings.get("screen_monitoring_enabled", False) or self.settings.get("private_mode", True):
+            return VisionMode.OFF
+        return VisionMode.ACTIVE
+
     def _check_screen_and_app(self):
         # Application context check
         app_ctx = self.app_manager.detect_context()
@@ -405,11 +429,21 @@ class CompanionOrchestrator:
             self.event_bus.emit(GAME_ENDED, title=window_title)
             self.state_manager.set_state("IDLE", reason="Game closed")
 
-        # Screen change check
-        if self.settings.get("screen_monitoring_enabled", False) and not self.settings.get("private_mode", True):
+        # Screen change check — see _compute_vision_mode for what drives each mode.
+        vision_mode = self._compute_vision_mode()
+        if vision_mode is not VisionMode.OFF:
             img = self.screen_capture.capture_primary()
-            if self.change_detector.has_changed(img):
-                self.context_manager.set_screen_context({"changed": True, "title": window_title})
+            changed = self.change_detector.has_changed(img)
+            # Recorded every tick (not just on change) so staleness can
+            # actually be measured later — FASE 11's prompt text relies on
+            # this timestamp to say "as of Xs atrás" instead of presenting a
+            # possibly-old reading as current.
+            self.context_manager.set_screen_context({
+                "window_title": window_title, "category": category,
+                "changed": changed, "timestamp": time.time(),
+            })
+            self.vision_buffer.add(window_title=window_title or "", category=category or "geral", changed=changed)
+            if changed:
                 self.event_bus.emit(SCREEN_CHANGED, title=window_title)
 
     @staticmethod

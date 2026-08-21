@@ -10,6 +10,7 @@ from src.core.orchestrator import (
 from src.core.event_bus import EventBus
 from src.core.agent_core import AgentCore
 from src.core.tool_registry import build_default_registry
+from src.vision.continuous_vision import ContinuousVisionBuffer, VisionMode
 
 
 def _bare_orchestrator():
@@ -424,6 +425,7 @@ class TestCheckScreenAndApp:
         orch.state_manager = MagicMock()
         orch.screen_capture = MagicMock()
         orch.change_detector = MagicMock()
+        orch.vision_buffer = ContinuousVisionBuffer()
         orch._last_window_title = None
         orch._last_app_category = None
         orch._is_game_active = False
@@ -512,6 +514,71 @@ class TestCheckScreenAndApp:
 
         assert changed == []
         orch.screen_capture.capture_primary.assert_not_called()
+
+    def test_screen_context_is_updated_every_tick_even_without_a_change(self):
+        """FASE 11 needs a fresh timestamp on every tick (not just on actual
+        change) to measure staleness accurately — a real ContextManager
+        stands in here since this behavior is about *what* gets passed to it."""
+        from src.ai.context import ContextManager
+        orch = self._bare_orchestrator(screen_monitoring_enabled=True, private_mode=False)
+        orch.context_manager = ContextManager()
+        self._set_context(orch, "Game", "gaming", False)
+        orch.change_detector.has_changed.return_value = False
+
+        orch._check_screen_and_app()
+
+        assert orch.context_manager.screen_context["window_title"] == "Game"
+        assert orch.context_manager.screen_context["changed"] is False
+        assert "timestamp" in orch.context_manager.screen_context
+
+    def test_vision_buffer_receives_an_entry_when_a_mode_is_active(self):
+        orch = self._bare_orchestrator(screen_monitoring_enabled=True, private_mode=False)
+        self._set_context(orch, "Game", "gaming", False)
+
+        orch._check_screen_and_app()
+
+        assert orch.vision_buffer.freshest().window_title == "Game"
+
+    def test_vision_buffer_receives_nothing_when_mode_is_off(self):
+        orch = self._bare_orchestrator(screen_monitoring_enabled=False)
+        self._set_context(orch, "Game", "gaming", False)
+
+        orch._check_screen_and_app()
+
+        assert orch.vision_buffer.freshest() is None
+
+
+class TestComputeVisionMode:
+    def _bare(self, **settings_overrides):
+        orch = CompanionOrchestrator.__new__(CompanionOrchestrator)
+        orch.settings = FakeSettings(**settings_overrides)
+        return orch
+
+    def test_defaults_to_off(self):
+        assert self._bare()._compute_vision_mode() == VisionMode.OFF
+
+    def test_monitoring_disabled_is_off_even_if_not_private(self):
+        orch = self._bare(screen_monitoring_enabled=False, private_mode=False)
+        assert orch._compute_vision_mode() == VisionMode.OFF
+
+    def test_private_mode_is_off_regardless_of_monitoring(self):
+        """Matches the UI's own promise for this checkbox: 'Modo Privado
+        (Nenhuma captura ou OCR)' — private_mode=True must mean zero capture,
+        not a lighter CONTEXT-only mode."""
+        orch = self._bare(screen_monitoring_enabled=True, private_mode=True)
+        assert orch._compute_vision_mode() == VisionMode.OFF
+
+    def test_monitoring_enabled_and_not_private_is_active(self):
+        orch = self._bare(screen_monitoring_enabled=True, private_mode=False)
+        assert orch._compute_vision_mode() == VisionMode.ACTIVE
+
+    def test_explicit_setting_overrides_legacy_toggles(self):
+        orch = self._bare(screen_monitoring_enabled=False, screen_vision_mode="AWARENESS")
+        assert orch._compute_vision_mode() == VisionMode.AWARENESS
+
+    def test_invalid_explicit_setting_falls_back_to_legacy_toggles(self):
+        orch = self._bare(screen_monitoring_enabled=True, private_mode=False, screen_vision_mode="not_a_real_mode")
+        assert orch._compute_vision_mode() == VisionMode.ACTIVE
 
 
 class _SyncThread:

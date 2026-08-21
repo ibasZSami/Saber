@@ -1,3 +1,5 @@
+import threading
+
 import mss
 import mss.tools
 from PIL import Image
@@ -21,17 +23,30 @@ def encode_image_base64(img: Image.Image, max_width: int = 1120, quality: int = 
 
 
 class ScreenCapture:
+    """mss.mss() instances are NOT thread-safe (each wraps thread-local
+    Windows GDI state), but this class is called from both the GUI thread
+    (the periodic vision timer) and background worker threads (a chat
+    message needing a live screenshot) — a single shared instance was a real
+    race. Each thread gets its own instance instead, created lazily on first
+    use, via threading.local()."""
+
     def __init__(self):
-        self.sct = mss.mss()
+        self._local = threading.local()
+
+    def _sct(self) -> mss.mss:
+        if not hasattr(self._local, "sct"):
+            self._local.sct = mss.mss()
+        return self._local.sct
 
     def capture_primary(self) -> Image.Image:
-        monitor = self.sct.monitors[1] if len(self.sct.monitors) > 1 else self.sct.monitors[0]
-        sct_img = self.sct.grab(monitor)
-        img = Image.frombytes("RGB", sct_img.size, sct_img.bgra, "raw", "BGRX")
-        return img
+        sct = self._sct()
+        monitor = sct.monitors[1] if len(sct.monitors) > 1 else sct.monitors[0]
+        sct_img = sct.grab(monitor)
+        return Image.frombytes("RGB", sct_img.size, sct_img.bgra, "raw", "BGRX")
 
     def capture_monitor(self, monitor_index: int = 1) -> Image.Image:
-        idx = min(monitor_index, len(self.sct.monitors) - 1)
-        monitor = self.sct.monitors[idx]
-        sct_img = self.sct.grab(monitor)
+        sct = self._sct()
+        idx = min(monitor_index, len(sct.monitors) - 1)
+        monitor = sct.monitors[idx]
+        sct_img = sct.grab(monitor)
         return Image.frombytes("RGB", sct_img.size, sct_img.bgra, "raw", "BGRX")
