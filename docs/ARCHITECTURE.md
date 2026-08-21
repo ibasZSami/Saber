@@ -266,6 +266,29 @@ vire uma rajada de comentários assim que termina. O `idle_gap` (nunca
 falar logo depois de uma interação real) continua existindo como uma
 checagem separada, antes do orçamento — são preocupações diferentes.
 
+## Barge-in (interromper a fala)
+
+Toda ferramenta de TTS (`src/voice/tts.py`) ganhou `stop()` — antes só
+existia `speak()`, sem nenhum jeito de cancelar uma fala em andamento:
+`EdgeTTSProvider.stop()` chama `pygame.mixer.music.stop()` (seguro entre
+threads — o loop de espera de `speak()` sai sozinho no próximo poll,
+até ~100ms depois); `Pyttsx3Provider.stop()` chama `engine.stop()`
+(comportamento documentado do pyttsx3, funciona bem no driver SAPI5 do
+Windows que este projeto já assume); `FallbackTTSProvider.stop()` chama
+os dois de baixo (só um estará de fato tocando).
+
+`CompanionOrchestrator._speak_async` agora rastreia `_is_speaking` e emite
+`TTS_STARTED`/`TTS_FINISHED` em volta da chamada — `voice.speaking` no
+`SilvaState` vem daqui. `stop_speaking()` é o método público
+(`self.tts.stop()`, seguro chamar mesmo sem nada tocando) — conectado
+automaticamente a `voice_input.listening_started`: apertar Push-to-Talk ou
+disparar o modo mãos-livres enquanto ela está falando a interrompe na
+hora, mesmo padrão de barge-in de uma conversa real. Só entrada de voz
+DIRETA faz isso (não o áudio do sistema overheard, mesmo princípio de
+autoridade do `is_direct_input`). "para de falar"/"cala a boca"/"fica
+quieta"/"silêncio" fazem o mesmo por texto — útil principalmente na janela
+de chat, que não tem áudio pra interromper naturalmente.
+
 ## Observabilidade local
 
 - `ActivityLog` (`src/core/activity_log.py`): histórico amigável de ações

@@ -178,6 +178,13 @@ TRANSLATION_MODE_STATE_CHANGED = "TRANSLATION_MODE_STATE_CHANGED"
 # SILVA_MODES' keys.
 SILVA_MODE_APPLIED = "SILVA_MODE_APPLIED"
 
+# TTS lifecycle (FASE 14 — barge-in) — no kwargs. Fired around every
+# _speak_async() call, letting anything (SilvaState, a future UI indicator)
+# know whether Silva is currently talking, and giving stop_speaking() a
+# real "is there anything to interrupt" signal instead of guessing.
+TTS_STARTED = "TTS_STARTED"
+TTS_FINISHED = "TTS_FINISHED"
+
 # Fired by TranslationMode from its background translation-worker thread
 # once a batch comes back — the actual OverlayWindow.set_blocks() call must
 # happen on the GUI thread, so this is routed through EventBus's own

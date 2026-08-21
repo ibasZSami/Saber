@@ -96,6 +96,9 @@ posição original do texto num overlay transparente:
 - **Ouve o áudio do próprio PC/jogo** (loopback WASAPI) — ativa por voz ("está ouvindo o som do
   jogo/pc") ou pela tecla `Ctrl+-`, também transcrito localmente.
 - TTS via EdgeTTS (voz masculina, tom ajustável) ou pyttsx3, configurável em Configurações → Voz.
+- **Interrupção (barge-in)**: apertar F8/mãos-livres enquanto ela está falando interrompe na hora,
+  como interromper uma pessoa de verdade — ou diga/digite "para de falar" / "cala a boca" a
+  qualquer momento.
 
 ### Ações no Sistema (Tool Registry + permissões em camadas)
 Toda ação passa por um `ToolRegistry` central com tier de permissão (`SAFE` / `CONFIRM` /
@@ -206,7 +209,7 @@ voz e permissões iniciais.
 pytest tests/ --cov=src --cov-report=term-missing
 ```
 
-958 testes (91% de cobertura) cobrindo orquestrador, ferramentas/permissões, Agent Engine (task
+980 testes (91% de cobertura) cobrindo orquestrador, ferramentas/permissões, Agent Engine (task
 loop), mouse/teclado, terminal controlado, OCR estruturado, Translation Engine, overlay, Modo
 Tradução, voz, visão contínua, memória, lembretes/scheduler, notícias, mixer de som, autostart,
 pesquisa em segundo plano, Modo Nerd, tela de Aplicativos, sprites/animação, estado
@@ -222,18 +225,16 @@ Documentação técnica (arquitetura, segurança, padrões de teste) em [`docs/`
 Silva está evoluindo de "conjunto de features" pra uma arquitetura de **Local AI Desktop Agent**
 (Agent Core, Tool Registry, Scheduler, Visão Contínua, Emotion Engine, Agent Engine com loop
 multi-passo (com gatilho de chat), controle de mouse/teclado, terminal controlado, Modo Tradução
-com overlay, Memória em camadas com filtro de relevância, Privacy Center, Modos do Silva e
-Attention Budget já feitos acima). O que falta, em ordem:
+com overlay, Memória em camadas com filtro de relevância, Privacy Center, Modos do Silva,
+Attention Budget e barge-in já feitos acima). O que falta, em ordem:
 
 - **RAG local (documentos/código)**: mencionado como preparação futura na Memória em camadas —
   precisa de indexação/chunking/busca próprios, deliberadamente deixado fora por enquanto.
-- **Voice UX / barge-in**: interromper a Silva no meio da fala não existe ainda — precisa de um
-  handle real de cancelamento no ciclo de vida do TTS.
-- **Plugins**: nenhuma estrutura de plugin existe ainda — planejado como interface simples
-  (`plugins/discord/`, `plugins/spotify/`, etc.), não uma prioridade imediata.
-- **Empacotamento**: hoje roda só via `install.bat`/`run.bat` + Python — gerar um instalador
-  (`Silva-Setup.exe`) fica pra depois, sem prioridade sobre o resto.
 - **Browser real (nível DOM)**: "abrir navegador e pesquisar X" funciona (`open_url`/`search_web`),
   mas clicar/ler dentro de uma página específica precisaria de Playwright/Selenium — dependência
   pesada (baixa um Chromium inteiro), deixada de fora de propósito por enquanto. Mouse/teclado já
   cobrem parte disso manualmente quando habilitados.
+- **Plugins**: nenhuma estrutura de plugin existe ainda — planejado como interface simples
+  (`plugins/discord/`, `plugins/spotify/`, etc.), não uma prioridade imediata.
+- **Empacotamento**: hoje roda só via `install.bat`/`run.bat` + Python — gerar um instalador
+  (`Silva-Setup.exe`) fica pra depois, sem prioridade sobre o resto.

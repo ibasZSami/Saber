@@ -1,6 +1,7 @@
 import time
 from unittest.mock import MagicMock
 
+import pytest
 from PySide6.QtCore import QTimer
 
 from src.core.orchestrator import (
@@ -871,6 +872,7 @@ class TestOnReminderFired:
         orch.memory_manager = MagicMock()
         orch.tts = MagicMock()
         orch.settings = FakeSettings()
+        orch.event_bus = EventBus()
         return orch
 
     def test_speaks_and_records_the_reminder(self, monkeypatch):
@@ -1058,6 +1060,116 @@ class TestMaybeToggleSpontaneousTalk:
         orch = self._bare_orchestrator()
         orch._maybe_toggle_spontaneous_talk("PARE DE FALAR ALEATORIAMENTE")
         assert orch.spontaneous_talk_enabled is False
+
+
+class TestSpeakAsync:
+    """FASE 14 (barge-in) — _speak_async must track _is_speaking and fire
+    TTS_STARTED/TTS_FINISHED around the call, using _SyncThread so these
+    run synchronously and are observable right after the call returns."""
+
+    def _bare_orchestrator(self):
+        orch = CompanionOrchestrator.__new__(CompanionOrchestrator)
+        orch.settings = FakeSettings()
+        orch.tts = MagicMock()
+        orch.event_bus = EventBus()
+        return orch
+
+    def test_sets_is_speaking_true_during_the_call(self, monkeypatch):
+        import threading
+        orch = self._bare_orchestrator()
+        seen_during_call = {}
+        orch.tts.speak.side_effect = lambda *a, **k: seen_during_call.setdefault("value", orch._is_speaking)
+        monkeypatch.setattr(threading, "Thread", _SyncThread)
+
+        orch._speak_async("oi")
+
+        assert seen_during_call["value"] is True
+
+    def test_is_speaking_false_after_the_call_completes(self, monkeypatch):
+        import threading
+        orch = self._bare_orchestrator()
+        monkeypatch.setattr(threading, "Thread", _SyncThread)
+
+        orch._speak_async("oi")
+
+        assert orch._is_speaking is False
+
+    def test_is_speaking_false_after_a_crash_in_speak(self, monkeypatch):
+        import threading
+        orch = self._bare_orchestrator()
+        orch.tts.speak.side_effect = RuntimeError("boom")
+        monkeypatch.setattr(threading, "Thread", _SyncThread)
+
+        with pytest.raises(RuntimeError):
+            orch._speak_async("oi")
+
+        assert orch._is_speaking is False
+
+    def test_emits_tts_started_and_finished(self, monkeypatch):
+        import threading
+        orch = self._bare_orchestrator()
+        received = []
+        orch.event_bus.subscribe("TTS_STARTED", lambda **kw: received.append("STARTED"))
+        orch.event_bus.subscribe("TTS_FINISHED", lambda **kw: received.append("FINISHED"))
+        monkeypatch.setattr(threading, "Thread", _SyncThread)
+
+        orch._speak_async("oi")
+
+        assert received == ["STARTED", "FINISHED"]
+
+    def test_passes_configured_voice_settings_to_the_provider(self, monkeypatch):
+        import threading
+        orch = self._bare_orchestrator()
+        orch.settings.set("voice", "pt-BR-AntonioNeural")
+        orch.settings.set("voice_volume", 0.8)
+        orch.settings.set("voice_speed", 1.1)
+        orch.settings.set("voice_pitch", "+10Hz")
+        monkeypatch.setattr(threading, "Thread", _SyncThread)
+
+        orch._speak_async("oi")
+
+        orch.tts.speak.assert_called_once_with(
+            "oi", voice="pt-BR-AntonioNeural", volume=0.8, speed=1.1, pitch="+10Hz",
+        )
+
+
+class TestStopSpeaking:
+    def test_calls_tts_stop(self):
+        orch = CompanionOrchestrator.__new__(CompanionOrchestrator)
+        orch.tts = MagicMock()
+        orch.stop_speaking()
+        orch.tts.stop.assert_called_once()
+
+
+class TestMaybeStopSpeaking:
+    def _bare_orchestrator(self, is_speaking=True):
+        orch = CompanionOrchestrator.__new__(CompanionOrchestrator)
+        orch.tts = MagicMock()
+        orch._is_speaking = is_speaking
+        return orch
+
+    def test_stops_and_confirms_when_speaking(self):
+        orch = self._bare_orchestrator(is_speaking=True)
+        reply = orch._maybe_stop_speaking("para de falar")
+        orch.tts.stop.assert_called_once()
+        assert reply == "Ok, parei."
+
+    def test_different_reply_when_not_currently_speaking(self):
+        orch = self._bare_orchestrator(is_speaking=False)
+        reply = orch._maybe_stop_speaking("cala a boca")
+        orch.tts.stop.assert_called_once()
+        assert reply == "Tá, já tinha parado."
+
+    def test_unrelated_message_returns_none(self):
+        orch = self._bare_orchestrator()
+        reply = orch._maybe_stop_speaking("oi, tudo bem?")
+        assert reply is None
+        orch.tts.stop.assert_not_called()
+
+    def test_recognizes_all_phrases(self):
+        for phrase in ["para de falar", "cala a boca", "fica quieta", "silêncio"]:
+            orch = self._bare_orchestrator()
+            assert orch._maybe_stop_speaking(phrase) is not None
 
 
 class TestApplySilvaMode:
@@ -1311,6 +1423,81 @@ class TestMaybeToggleTranslationMode:
     def test_unrelated_message_returns_none(self):
         orch = self._bare_orchestrator()
         assert orch._maybe_toggle_translation_mode("oi, tudo bem?") is None
+
+
+class TestHandleUserMessageStopSpeakingShortCircuit:
+    def _bare_orchestrator(self):
+        orch = CompanionOrchestrator.__new__(CompanionOrchestrator)
+        orch.event_bus = EventBus()
+        orch.state_manager = MagicMock()
+        orch.memory_manager = MagicMock()
+        orch.settings = FakeSettings()
+        orch.nerd_mode_enabled = False
+        orch.tts = MagicMock()
+        orch._last_interaction_time = 0.0
+        orch.ai_provider = MagicMock()
+        orch._is_speaking = True
+        return orch
+
+    def test_stop_command_interrupts_and_confirms_without_calling_ai(self, monkeypatch):
+        import threading
+        orch = self._bare_orchestrator()
+        monkeypatch.setattr(threading, "Thread", _SyncThread)
+        responses = []
+
+        orch.handle_user_message("para de falar", on_response=lambda r: responses.append(r))
+
+        assert responses == ["Ok, parei."]
+        orch.ai_provider.chat.assert_not_called()
+        orch.tts.stop.assert_called_once()
+
+    def test_ordinary_message_is_not_mistaken_for_a_stop_command(self, monkeypatch):
+        import threading
+        import json
+        orch = self._bare_orchestrator()
+        orch.memory_manager.get_memories.return_value = {}
+        orch.memory_manager.get_history.return_value = []
+        orch.context_manager = MagicMock()
+        orch.context_manager.build_prompt_context.return_value = "prompt"
+        orch.screen_capture = MagicMock()
+        orch.ai_vision_provider = None
+        orch.action_manager = MagicMock()
+        orch.system_audio_listener = MagicMock()
+        orch.agent_core = AgentCore(build_default_registry(orch.action_manager, orch.memory_manager), orch.event_bus)
+        orch.ai_provider.chat.return_value = json.dumps({
+            "speech": "oi!", "emotion": "HAPPY", "action": "Nenhuma", "action_param": ""
+        })
+        monkeypatch.setattr(threading, "Thread", _SyncThread)
+
+        orch.handle_user_message("oi, tudo bem?")
+
+        orch.ai_provider.chat.assert_called_once()
+        orch.tts.stop.assert_not_called()
+
+    def test_overheard_stop_phrase_does_not_interrupt(self, monkeypatch):
+        """Only real direct speech/text can interrupt — overheard system
+        audio saying 'cala a boca' (e.g. a video) must not silence Silva,
+        same is_direct_input-only authority as every other command trigger."""
+        import threading
+        import json
+        orch = self._bare_orchestrator()
+        orch.memory_manager.get_memories.return_value = {}
+        orch.memory_manager.get_history.return_value = []
+        orch.context_manager = MagicMock()
+        orch.context_manager.build_prompt_context.return_value = "prompt"
+        orch.screen_capture = MagicMock()
+        orch.ai_vision_provider = None
+        orch.action_manager = MagicMock()
+        orch.system_audio_listener = MagicMock()
+        orch.agent_core = AgentCore(build_default_registry(orch.action_manager, orch.memory_manager), orch.event_bus)
+        orch.ai_provider.chat.return_value = json.dumps({
+            "speech": "oi!", "emotion": "HAPPY", "action": "Nenhuma", "action_param": ""
+        })
+        monkeypatch.setattr(threading, "Thread", _SyncThread)
+
+        orch.handle_user_message("[Áudio do jogo/PC]: cala a boca", is_direct_input=False)
+
+        orch.tts.stop.assert_not_called()
 
 
 class TestHandleUserMessageTranslationModeShortCircuit:

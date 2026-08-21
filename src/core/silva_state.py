@@ -16,11 +16,12 @@ class SilvaState:
     over data other modules already own and already keep correct.
 
     Only exposes fields backed by something the codebase can actually answer
-    today. Several fields the FASE 4 spec sketches (conversation.current_topic,
-    voice.speaking, vision.last_capture) have no real signal to read yet — no
-    topic tracker, no TTS "is speaking" state (see FASE 14), no capture
-    timestamp — so they're left out rather than faked. Add them here once the
-    phase that actually produces that data lands, not before."""
+    today. voice.speaking landed with FASE 14 (barge-in — see
+    CompanionOrchestrator._is_speaking). Some fields the FASE 4 spec sketches
+    (conversation.current_topic, vision.last_capture) still have no real
+    signal to read yet — no topic tracker, no capture timestamp — so they're
+    left out rather than faked. Add them here once the phase that actually
+    produces that data lands, not before."""
 
     def __init__(self, orchestrator):
         self._orch = orchestrator
@@ -66,6 +67,10 @@ class SilvaState:
             "listening": bool(getattr(orch.voice_input, "is_listening", False)),
             "hands_free_enabled": bool(getattr(orch.voice_input, "hands_free_enabled", False)),
             "system_audio_listening": bool(getattr(orch.system_audio_listener, "enabled", False)),
+            # FASE 14 (barge-in) — previously listed in this class's own
+            # docstring as a gap with "no real signal to read yet"; now
+            # there is one (CompanionOrchestrator._is_speaking).
+            "speaking": bool(getattr(orch, "_is_speaking", False)),
         }
 
     def _permissions(self) -> dict:

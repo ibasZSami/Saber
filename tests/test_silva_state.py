@@ -146,6 +146,17 @@ class TestVoiceSection:
         snapshot = SilvaState(orch).snapshot()
         assert snapshot["voice"]["system_audio_listening"] is True
 
+    def test_reflects_speaking_state(self):
+        orch = _FakeOrchestrator()
+        orch._is_speaking = True
+        snapshot = SilvaState(orch).snapshot()
+        assert snapshot["voice"]["speaking"] is True
+
+    def test_missing_speaking_attribute_defaults_to_false(self):
+        orch = _FakeOrchestrator()  # never sets _is_speaking
+        snapshot = SilvaState(orch).snapshot()
+        assert snapshot["voice"]["speaking"] is False
+
     def test_missing_attributes_default_to_false_not_an_exception(self):
         """A voice_input/system_audio_listener stand-in that doesn't define
         these attributes (e.g. a bare MagicMock in some other test's setup)
@@ -157,7 +168,9 @@ class TestVoiceSection:
 
         snapshot = SilvaState(orch).snapshot()
 
-        assert snapshot["voice"] == {"listening": False, "hands_free_enabled": False, "system_audio_listening": False}
+        assert snapshot["voice"] == {
+            "listening": False, "hands_free_enabled": False, "system_audio_listening": False, "speaking": False,
+        }
 
 
 class TestPermissionsSection:

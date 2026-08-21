@@ -18,6 +18,12 @@ class TTSProvider:
     def speak(self, text: str, voice: str = DEFAULT_VOICE, volume: float = 1.0, speed: float = 1.0, pitch: str = "+0Hz") -> bool:
         raise NotImplementedError
 
+    def stop(self):
+        """Interrupts an in-progress speak() call, if any — barge-in (FASE
+        14). Default no-op for a provider with nothing to cancel; safe to
+        call even when nothing is currently speaking."""
+        pass
+
 class EdgeTTSProvider(TTSProvider):
     def speak(self, text: str, voice: str = DEFAULT_VOICE, volume: float = 1.0, speed: float = 1.0, pitch: str = "+0Hz") -> bool:
         try:
@@ -60,6 +66,18 @@ class EdgeTTSProvider(TTSProvider):
         except Exception as e:
             logging.error(f"EdgeTTS Error: {e}")
             return False
+
+    def stop(self):
+        # pygame's mixer functions are safe to call from a different thread
+        # than the one running speak()'s playback loop — calling stop()
+        # here makes that loop's get_busy() check return False on its next
+        # poll (up to ~100ms later, from the tick(10) wait), which is what
+        # actually unblocks speak() and lets it clean up and return.
+        try:
+            import pygame
+            pygame.mixer.music.stop()
+        except Exception as e:
+            logging.debug(f"EdgeTTS stop() had nothing to stop: {e}")
 
 class Pyttsx3Provider(TTSProvider):
     def __init__(self):
@@ -108,6 +126,17 @@ class Pyttsx3Provider(TTSProvider):
             logging.error(f"pyttsx3 speak error: {e}")
             return False
 
+    def stop(self):
+        # pyttsx3's stop() is documented to interrupt an in-progress
+        # runAndWait() — thread-safety varies by platform driver, but this
+        # is the standard/expected way to cancel it (SAPI5 on Windows,
+        # which is what this project targets, handles it fine in practice).
+        if self.engine:
+            try:
+                self.engine.stop()
+            except Exception as e:
+                logging.error(f"pyttsx3 stop error: {e}")
+
 
 class FallbackTTSProvider(TTSProvider):
     """Auto-recovery for the most common real failure mode of the default
@@ -131,3 +160,9 @@ class FallbackTTSProvider(TTSProvider):
             return True
         logging.warning("Primary TTS failed — falling back to local voice.")
         return self.fallback.speak(text, voice=voice, volume=volume, speed=speed, pitch=pitch)
+
+    def stop(self):
+        # Only one of the two is ever actually speaking at a time — calling
+        # stop() on both is simpler and just as safe as tracking which one.
+        self.primary.stop()
+        self.fallback.stop()

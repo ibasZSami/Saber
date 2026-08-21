@@ -181,3 +181,56 @@ class TestFallbackTTSProvider:
 
         assert result is True
         mock_engine.say.assert_called_once_with("olá")
+
+
+class TestStopBargeIn:
+    """FASE 14 — interrupting Silva mid-sentence."""
+
+    def test_base_provider_stop_is_a_harmless_no_op(self):
+        TTSProvider().stop()  # should not raise
+
+    def test_edge_tts_stop_calls_pygame_mixer_stop(self):
+        fake_pygame = MagicMock()
+        provider = EdgeTTSProvider()
+        with patch.dict("sys.modules", {"pygame": fake_pygame}):
+            provider.stop()
+        fake_pygame.mixer.music.stop.assert_called_once()
+
+    def test_edge_tts_stop_with_nothing_playing_does_not_raise(self):
+        provider = EdgeTTSProvider()
+        with patch.dict("sys.modules", {"pygame": None}):
+            provider.stop()  # should not raise
+
+    @patch("pyttsx3.init")
+    def test_pyttsx3_stop_calls_engine_stop(self, mock_init):
+        mock_engine = MagicMock()
+        mock_init.return_value = mock_engine
+        provider = Pyttsx3Provider()
+
+        provider.stop()
+
+        mock_engine.stop.assert_called_once()
+
+    @patch("pyttsx3.init", side_effect=RuntimeError("no engine"))
+    def test_pyttsx3_stop_without_an_engine_does_not_raise(self, mock_init):
+        provider = Pyttsx3Provider()
+        provider.stop()  # should not raise
+
+    @patch("pyttsx3.init")
+    def test_pyttsx3_stop_exception_is_caught(self, mock_init):
+        mock_engine = MagicMock()
+        mock_engine.stop.side_effect = RuntimeError("boom")
+        mock_init.return_value = mock_engine
+        provider = Pyttsx3Provider()
+
+        provider.stop()  # should not raise
+
+    def test_fallback_stop_calls_both_providers(self):
+        primary = MagicMock(spec=TTSProvider)
+        fallback = MagicMock(spec=TTSProvider)
+        provider = FallbackTTSProvider(primary, fallback)
+
+        provider.stop()
+
+        primary.stop.assert_called_once()
+        fallback.stop.assert_called_once()

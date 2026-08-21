@@ -14,7 +14,7 @@ from src.core.event_bus import (
     USER_SPOKE, SYSTEM_AUDIO_DETECTED, VOICE_STARTED, VOICE_FINISHED,
     ERROR_OCCURRED, SPONTANEOUS_SPEECH,
     NERD_MODE_TOGGLED, VISION_MONITORING_TOGGLED, APP_AUTO_RESOLVED, TASK_COMPLETED, TASK_FAILED,
-    SILVA_MODE_APPLIED,
+    SILVA_MODE_APPLIED, TTS_STARTED, TTS_FINISHED,
 )
 from src.core.state_machine import StateMachine
 from src.core.silva_state import SilvaState
@@ -115,6 +115,12 @@ TRANSLATION_MODE_ALREADY_OFF_REPLY = "A tradução já estava desativada."
 CANCEL_TASK_PHRASES = ["cancela a tarefa", "cancela isso", "para a tarefa", "para com isso"]
 CANCEL_TASK_CANCELLED_REPLY = "Beleza, parei a tarefa."
 CANCEL_TASK_NOTHING_RUNNING_REPLY = "Não tem nenhuma tarefa rodando pra cancelar."
+
+# Barge-in (FASE 14) — interrupts Silva mid-sentence. Distinct from
+# CANCEL_TASK_PHRASES above (a running Agent Engine task) and from
+# SPONTANEOUS_TALK_DISABLE_PHRASE (turns off future unprompted remarks) —
+# this is specifically about the audio playing right now.
+STOP_SPEAKING_PHRASES = ["para de falar", "cala a boca", "fica quieta", "silêncio"]
 
 # NERD MODE makes spontaneous talk noticeably more present — shorter idle
 # gap and faster AttentionBudget regen (see src/core/attention_budget.py).
@@ -227,6 +233,10 @@ class CompanionOrchestrator:
         self.spontaneous_talk_enabled = self.settings.get("spontaneous_talk_enabled", True)
         self._last_interaction_time = time.monotonic()
         self.attention_budget = AttentionBudget()
+        # Barge-in (FASE 14) — whether Silva is currently speaking, so
+        # stop_speaking() (and SilvaState's voice.speaking) have a real
+        # signal instead of guessing. Set/cleared by _speak_async itself.
+        self._is_speaking = False
         self.news_provider = NewsProvider()
         # How many times each headline has been offered to the model. A fast/
         # weak model doesn't reliably follow "prioritize this" every single
@@ -354,6 +364,13 @@ class CompanionOrchestrator:
         )
         self.voice_input.listening_started.connect(lambda: self.state_manager.set_state("LISTENING", reason="Voice input started"))
         self.voice_input.listening_started.connect(lambda: self.event_bus.emit(VOICE_STARTED))
+        # Barge-in (FASE 14): the user starting to talk (Push-to-Talk
+        # pressed, or hands-free triggers) interrupts Silva mid-sentence,
+        # same as a person would. Only real direct speech does this —
+        # system-audio (overheard) has no such connection, same
+        # is_direct_input-only authority principle as every deterministic
+        # command trigger.
+        self.voice_input.listening_started.connect(self.stop_speaking)
         self.voice_input.listening_stopped.connect(lambda: self.state_manager.set_state("THINKING", reason="Processing voice input"))
         self.voice_input.listening_stopped.connect(lambda: self.event_bus.emit(VOICE_FINISHED))
         self.voice_input.transcription_failed.connect(self._on_voice_transcription_failed)
@@ -889,14 +906,46 @@ class CompanionOrchestrator:
         """Speaks `speech` on a background thread using the settings-configured
         voice/volume/speed/pitch — shared by handle_user_message and the
         spontaneous-comment worker so a new TTS-affecting setting only needs
-        adding in one place."""
+        adding in one place. Tracks _is_speaking and fires TTS_STARTED/
+        TTS_FINISHED around the call — see stop_speaking() for the other
+        half of barge-in (FASE 14)."""
         tts_kwargs = {
             "voice": self.settings.get("voice", DEFAULT_VOICE),
             "volume": self.settings.get("voice_volume", 1.0),
             "speed": self.settings.get("voice_speed", 1.0),
             "pitch": self.settings.get("voice_pitch", "+0Hz"),
         }
-        threading.Thread(target=self.tts.speak, args=(speech,), kwargs=tts_kwargs, daemon=True).start()
+
+        def _run():
+            self._is_speaking = True
+            self.event_bus.emit(TTS_STARTED)
+            try:
+                self.tts.speak(speech, **tts_kwargs)
+            finally:
+                self._is_speaking = False
+                self.event_bus.emit(TTS_FINISHED)
+
+        threading.Thread(target=_run, daemon=True).start()
+
+    def stop_speaking(self):
+        """Barge-in (FASE 14) — interrupts Silva mid-sentence. Safe to call
+        even when she isn't currently speaking (every TTS provider's
+        stop() is a harmless no-op then). Wired to fire automatically the
+        moment the user starts talking (voice_input.listening_started, see
+        __init__) — pressing Push-to-Talk or triggering hands-free while
+        she's mid-sentence interrupts her the same way a person would."""
+        self.tts.stop()
+
+    def _maybe_stop_speaking(self, user_text: str) -> Optional[str]:
+        """Deterministic short-circuit for typed/spoken "para de falar" —
+        useful mainly from the chat window, where there's no audio input to
+        naturally barge in with. The audio path above already interrupts
+        instantly via listening_started, before this would ever run."""
+        if not self._contains_any(user_text, *STOP_SPEAKING_PHRASES):
+            return None
+        was_speaking = self._is_speaking
+        self.stop_speaking()
+        return "Ok, parei." if was_speaking else "Tá, já tinha parado."
 
     def handle_user_message(self, user_text: str, on_response=None, is_direct_input: bool = True):
         """is_direct_input=False marks text that Silva only OVERHEARD rather
@@ -917,6 +966,17 @@ class CompanionOrchestrator:
             try:
                 vision_needed = False
                 if is_direct_input:
+                    # Checked first of all the deterministic commands — an
+                    # interrupt request deserves to win a race against
+                    # anything else being decided about this same message.
+                    stop_speaking_reply = self._maybe_stop_speaking(user_text)
+                    if stop_speaking_reply is not None:
+                        self.memory_manager.record_turn(user_text, stop_speaking_reply)
+                        self._speak_async(stop_speaking_reply)
+                        if on_response:
+                            on_response(stop_speaking_reply)
+                        return
+
                     # A pure command ("vira nerd") gets an instant, deterministic
                     # reply — no AI call needed to answer it, and skipping the LLM
                     # guarantees the exact confirmation phrase.
