@@ -162,3 +162,14 @@ TASK_LOOP_FAILED = "TASK_LOOP_FAILED"
 # events don't, since those stay bool-only for every tool by design (see
 # AgentCore.execute). kwargs: name, args, success, output, error.
 TERMINAL_TOOL_EXECUTED = "TERMINAL_TOOL_EXECUTED"
+
+# Translation Engine (FASE 5, src/vision/translation_engine.py) — one batch
+# is everything translated together from a single OCR pass. kwargs: total
+# (texts requested), from_cache (served without an AI call), translated
+# (actually sent to the AI), duration_seconds.
+TRANSLATION_BATCH_COMPLETED = "TRANSLATION_BATCH_COMPLETED"
+
+# Translation Mode (FASE 6/7) state machine — kwargs: state: str (one of
+# TRANSLATION_MODE_OFF/STARTING/RUNNING/STOPPING, see
+# src/core/translation_mode.py).
+TRANSLATION_MODE_STATE_CHANGED = "TRANSLATION_MODE_STATE_CHANGED"
