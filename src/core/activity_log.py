@@ -18,6 +18,7 @@ from src.core.event_bus import (
     NERD_MODE_TOGGLED, VISION_MONITORING_TOGGLED,
     TASK_COMPLETED, TASK_FAILED, ERROR_OCCURRED,
     REMINDER_CREATED, REMINDER_FIRED,
+    TRANSLATION_MODE_STATE_CHANGED,
 )
 
 MAX_ENTRIES = 200
@@ -72,6 +73,7 @@ class ActivityLog:
         self.event_bus.subscribe(ERROR_OCCURRED, self._on_error)
         self.event_bus.subscribe(REMINDER_CREATED, self._on_reminder_created)
         self.event_bus.subscribe(REMINDER_FIRED, self._on_reminder_fired)
+        self.event_bus.subscribe(TRANSLATION_MODE_STATE_CHANGED, self._on_translation_mode_state_changed)
 
     def _add(self, text: str):
         self._entries.append(ActivityEntry(timestamp=time.time(), text=text))
@@ -108,6 +110,14 @@ class ActivityLog:
 
     def _on_reminder_fired(self, reminder_id, message):
         self._add(f'Avisou um lembrete: "{message}".')
+
+    def _on_translation_mode_state_changed(self, state):
+        # STARTING/STOPPING are transient mid-flight states — only the
+        # settled RUNNING/OFF endpoints are worth a log line.
+        if state == "RUNNING":
+            self._add("Ativou o modo de tradução contínua da tela.")
+        elif state == "OFF":
+            self._add("Desativou o modo de tradução contínua da tela.")
 
     def entries(self):
         return list(self._entries)

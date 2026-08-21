@@ -173,3 +173,11 @@ TRANSLATION_BATCH_COMPLETED = "TRANSLATION_BATCH_COMPLETED"
 # TRANSLATION_MODE_OFF/STARTING/RUNNING/STOPPING, see
 # src/core/translation_mode.py).
 TRANSLATION_MODE_STATE_CHANGED = "TRANSLATION_MODE_STATE_CHANGED"
+
+# Fired by TranslationMode from its background translation-worker thread
+# once a batch comes back — the actual OverlayWindow.set_blocks() call must
+# happen on the GUI thread, so this is routed through EventBus's own
+# Qt.AutoConnection cross-thread queuing (see src/core/event_bus.py's
+# _Dispatcher) rather than touching the widget directly off-thread.
+# kwargs: blocks: List[OverlayBlock].
+TRANSLATION_BLOCKS_READY = "TRANSLATION_BLOCKS_READY"

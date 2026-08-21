@@ -113,6 +113,19 @@ class TestVisionSection:
         snapshot = SilvaState(orch).snapshot()
         assert snapshot["vision"]["mode"] == "ACTIVE"
 
+    def test_omits_translation_mode_state_without_a_translation_mode(self):
+        orch = _FakeOrchestrator()
+        snapshot = SilvaState(orch).snapshot()
+        assert "translation_mode_state" not in snapshot["vision"]
+
+    def test_includes_translation_mode_state_when_present(self):
+        from src.core.translation_mode import TranslationModeState
+        orch = _FakeOrchestrator()
+        orch.translation_mode = MagicMock()
+        orch.translation_mode.state = TranslationModeState.RUNNING
+        snapshot = SilvaState(orch).snapshot()
+        assert snapshot["vision"]["translation_mode_state"] == "RUNNING"
+
 
 class TestVoiceSection:
     def test_reflects_mic_listening_state(self):

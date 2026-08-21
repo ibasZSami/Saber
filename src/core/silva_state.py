@@ -55,6 +55,9 @@ class SilvaState:
         compute_mode = getattr(orch, "_compute_vision_mode", None)
         if compute_mode is not None:
             result["mode"] = compute_mode().value
+        translation_mode = getattr(orch, "translation_mode", None)
+        if translation_mode is not None:
+            result["translation_mode_state"] = translation_mode.state.value
         return result
 
     def _voice(self) -> dict:

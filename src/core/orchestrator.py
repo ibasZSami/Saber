@@ -24,6 +24,8 @@ from src.core.task_manager import TaskManager
 from src.core.agent_engine import AgentEngine
 from src.desktop.input_control import InputController
 from src.desktop.terminal_tool import TerminalToolManager
+from src.core.translation_mode import TranslationMode, TranslationModeState
+from src.vision.translation_engine import TranslationEngine
 from src.memory.database import Database
 from src.vision.continuous_vision import ContinuousVisionBuffer, VisionMode
 from src.core.tool_registry import build_default_registry
@@ -89,6 +91,20 @@ NERD_MODE_ENABLE_PHRASES = [
 NERD_MODE_DISABLE_PHRASES = ["desativar modo nerd", "desliga o modo nerd", "sai do modo nerd"]
 NERD_MODE_ENABLED_REPLY = "Modo Nerd ativado."
 NERD_MODE_DISABLED_REPLY = "Modo Nerd desativado."
+
+# Translation Mode (FASE 7) — continuous OCR+translate+overlay, distinct
+# from the existing one-shot "Traduz isso" trigger further down (checked
+# AFTER this one short-circuits, so "traduz isso"/"traduza" never reach
+# here: neither contains the substring "traduzir"). Disable checked first
+# for the same reason as nerd mode above — "parar de traduzir" contains
+# "traduzir" as a substring, so checking enable first would misfire "on"
+# for a stop command.
+TRANSLATION_MODE_ENABLE_PHRASES = ["traduzir a tela", "modo tradução", "ativar tradução", "traduzir"]
+TRANSLATION_MODE_DISABLE_PHRASES = ["parar tradução", "parar de traduzir", "desativar tradução", "para a tradução"]
+TRANSLATION_MODE_ENABLED_REPLY = "Tradução ativada — vou traduzir o que aparecer na tela."
+TRANSLATION_MODE_DISABLED_REPLY = "Tradução desativada."
+TRANSLATION_MODE_ALREADY_ON_REPLY = "A tradução já está ativada."
+TRANSLATION_MODE_ALREADY_OFF_REPLY = "A tradução já estava desativada."
 
 # NERD MODE makes spontaneous talk noticeably more present — shorter checks
 # and a shorter idle gap — without yet being the full multi-signal relevance
@@ -227,6 +243,19 @@ class CompanionOrchestrator:
         # FASE 10: rolling metadata-only buffer feeding AWARENESS-mode
         # structured context (see _compute_vision_mode, _check_screen_and_app).
         self.vision_buffer = ContinuousVisionBuffer()
+
+        # Translation Mode (FASE 5/6/7) — continuous OCR+translate+overlay,
+        # separate from the one-shot "Traduz isso" flow above.
+        # ScreenChangeDetector here is a SEPARATE instance from
+        # self.change_detector (the periodic vision-monitoring one) — two
+        # independent consumers must never share one stateful detector.
+        # Reuses translation_manager's own OCR provider rather than
+        # constructing a second one.
+        self.translation_engine = TranslationEngine(self.ai_provider, self.event_bus)
+        self.translation_mode = TranslationMode(
+            self.screen_capture, ScreenChangeDetector(), self.translation_manager.ocr,
+            self.translation_engine, self.event_bus,
+        )
 
         # Initialize Desktop Actions
         self.window_manager = WindowManager()
@@ -543,6 +572,23 @@ class CompanionOrchestrator:
             return NERD_MODE_ENABLED_REPLY
         return None
 
+    def _maybe_toggle_translation_mode(self, user_text: str) -> Optional[str]:
+        """Same deterministic short-circuit pattern as _maybe_toggle_nerd_mode
+        — see TRANSLATION_MODE_* constants' comment for why disable is
+        checked first and how this avoids colliding with the existing
+        one-shot "Traduz isso" command."""
+        if self._contains_any(user_text, *TRANSLATION_MODE_DISABLE_PHRASES):
+            if self.translation_mode.state == TranslationModeState.OFF:
+                return TRANSLATION_MODE_ALREADY_OFF_REPLY
+            self.translation_mode.stop()
+            return TRANSLATION_MODE_DISABLED_REPLY
+        if self._contains_any(user_text, *TRANSLATION_MODE_ENABLE_PHRASES):
+            if self.translation_mode.state != TranslationModeState.OFF:
+                return TRANSLATION_MODE_ALREADY_ON_REPLY
+            self.translation_mode.start()
+            return TRANSLATION_MODE_ENABLED_REPLY
+        return None
+
     def _maybe_create_reminder(self, user_text: str) -> Optional[str]:
         """Same deterministic short-circuit pattern as _maybe_toggle_nerd_mode:
         a real reminder request ("me lembra em 10 minutos de X") gets an
@@ -769,6 +815,14 @@ class CompanionOrchestrator:
                         self._speak_async(reminder_reply)
                         if on_response:
                             on_response(reminder_reply)
+                        return
+
+                    translation_mode_reply = self._maybe_toggle_translation_mode(user_text)
+                    if translation_mode_reply is not None:
+                        self.memory_manager.record_turn(user_text, translation_mode_reply)
+                        self._speak_async(translation_mode_reply)
+                        if on_response:
+                            on_response(translation_mode_reply)
                         return
 
                     self._maybe_activate_vision_command(user_text)

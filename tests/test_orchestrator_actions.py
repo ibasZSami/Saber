@@ -11,6 +11,7 @@ from src.core.event_bus import EventBus
 from src.core.agent_core import AgentCore
 from src.core.tool_registry import build_default_registry
 from src.vision.continuous_vision import ContinuousVisionBuffer, VisionMode
+from src.core.translation_mode import TranslationModeState
 
 
 def _bare_orchestrator():
@@ -1100,6 +1101,113 @@ class TestMaybeCreateReminder:
 
         assert reply is None
         orch.scheduler.create.assert_not_called()
+
+
+class TestMaybeToggleTranslationMode:
+    def _bare_orchestrator(self):
+        orch = CompanionOrchestrator.__new__(CompanionOrchestrator)
+        orch.translation_mode = MagicMock()
+        orch.translation_mode.state = TranslationModeState.OFF
+        return orch
+
+    def test_enable_phrase_starts_translation_mode(self):
+        orch = self._bare_orchestrator()
+        reply = orch._maybe_toggle_translation_mode("Silva, traduzir")
+        orch.translation_mode.start.assert_called_once()
+        assert reply == "Tradução ativada — vou traduzir o que aparecer na tela."
+
+    def test_enable_when_already_on_does_not_start_again(self):
+        orch = self._bare_orchestrator()
+        orch.translation_mode.state = TranslationModeState.RUNNING
+        reply = orch._maybe_toggle_translation_mode("traduzir")
+        orch.translation_mode.start.assert_not_called()
+        assert reply == "A tradução já está ativada."
+
+    def test_disable_phrase_stops_translation_mode(self):
+        orch = self._bare_orchestrator()
+        orch.translation_mode.state = TranslationModeState.RUNNING
+        reply = orch._maybe_toggle_translation_mode("parar tradução")
+        orch.translation_mode.stop.assert_called_once()
+        assert reply == "Tradução desativada."
+
+    def test_disable_when_already_off_does_not_stop_again(self):
+        orch = self._bare_orchestrator()
+        reply = orch._maybe_toggle_translation_mode("parar de traduzir")
+        orch.translation_mode.stop.assert_not_called()
+        assert reply == "A tradução já estava desativada."
+
+    def test_stop_phrase_containing_traduzir_does_not_misfire_as_enable(self):
+        """Regression guard: 'parar de traduzir' contains the substring
+        'traduzir' — disable must be checked first (see the constants'
+        comment in orchestrator.py) or this would incorrectly start it."""
+        orch = self._bare_orchestrator()
+        orch.translation_mode.state = TranslationModeState.RUNNING
+        orch._maybe_toggle_translation_mode("parar de traduzir")
+        orch.translation_mode.start.assert_not_called()
+
+    def test_one_shot_translate_phrase_does_not_trigger_the_mode_toggle(self):
+        """'traduz isso'/'traduza X' must keep working as the existing
+        one-shot OCR-translate command, never mistaken for the continuous
+        mode toggle — neither contains the substring 'traduzir'."""
+        orch = self._bare_orchestrator()
+        assert orch._maybe_toggle_translation_mode("traduz isso") is None
+        assert orch._maybe_toggle_translation_mode("traduza essa tela pra mim") is None
+
+    def test_unrelated_message_returns_none(self):
+        orch = self._bare_orchestrator()
+        assert orch._maybe_toggle_translation_mode("oi, tudo bem?") is None
+
+
+class TestHandleUserMessageTranslationModeShortCircuit:
+    def _bare_orchestrator(self):
+        orch = CompanionOrchestrator.__new__(CompanionOrchestrator)
+        orch.event_bus = EventBus()
+        orch.state_manager = MagicMock()
+        orch.memory_manager = MagicMock()
+        orch.settings = FakeSettings()
+        orch.nerd_mode_enabled = False
+        orch.tts = MagicMock()
+        orch._last_interaction_time = 0.0
+        orch.ai_provider = MagicMock()
+        orch.scheduler = MagicMock()
+        orch.translation_mode = MagicMock()
+        orch.translation_mode.state = TranslationModeState.OFF
+        return orch
+
+    def test_enable_command_speaks_confirmation_without_calling_ai(self, monkeypatch):
+        import threading
+        orch = self._bare_orchestrator()
+        monkeypatch.setattr(threading, "Thread", _SyncThread)
+        responses = []
+
+        orch.handle_user_message("traduzir a tela", on_response=lambda r: responses.append(r))
+
+        assert responses == ["Tradução ativada — vou traduzir o que aparecer na tela."]
+        orch.ai_provider.chat.assert_not_called()
+        orch.translation_mode.start.assert_called_once()
+
+    def test_ordinary_message_is_not_mistaken_for_translation_toggle(self, monkeypatch):
+        import threading
+        import json
+        orch = self._bare_orchestrator()
+        orch.memory_manager.get_memories.return_value = {}
+        orch.memory_manager.get_history.return_value = []
+        orch.context_manager = MagicMock()
+        orch.context_manager.build_prompt_context.return_value = "prompt"
+        orch.screen_capture = MagicMock()
+        orch.ai_vision_provider = None
+        orch.action_manager = MagicMock()
+        orch.system_audio_listener = MagicMock()
+        orch.agent_core = AgentCore(build_default_registry(orch.action_manager, orch.memory_manager), orch.event_bus)
+        orch.ai_provider.chat.return_value = json.dumps({
+            "speech": "oi!", "emotion": "HAPPY", "action": "Nenhuma", "action_param": ""
+        })
+        monkeypatch.setattr(threading, "Thread", _SyncThread)
+
+        orch.handle_user_message("oi, tudo bem?")
+
+        orch.ai_provider.chat.assert_called_once()
+        orch.translation_mode.start.assert_not_called()
 
 
 class TestMaybeSpeakSpontaneously:

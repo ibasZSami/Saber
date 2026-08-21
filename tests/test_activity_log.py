@@ -105,6 +105,25 @@ class TestOtherLoggedEvents:
         bus.emit("REMINDER_FIRED", reminder_id=1, message="tirar o bolo")
         assert '"tirar o bolo"' in log.entries()[-1].text
 
+    def test_translation_mode_running_is_logged(self):
+        bus = _bus()
+        log = ActivityLog(bus)
+        bus.emit("TRANSLATION_MODE_STATE_CHANGED", state="RUNNING")
+        assert "Ativou" in log.entries()[-1].text
+
+    def test_translation_mode_off_is_logged(self):
+        bus = _bus()
+        log = ActivityLog(bus)
+        bus.emit("TRANSLATION_MODE_STATE_CHANGED", state="OFF")
+        assert "Desativou" in log.entries()[-1].text
+
+    def test_translation_mode_transient_states_are_not_logged(self):
+        bus = _bus()
+        log = ActivityLog(bus)
+        bus.emit("TRANSLATION_MODE_STATE_CHANGED", state="STARTING")
+        bus.emit("TRANSLATION_MODE_STATE_CHANGED", state="STOPPING")
+        assert log.entries() == []
+
 
 class TestNoiseIsNotLogged:
     def test_memory_recalled_is_not_logged(self):
