@@ -1210,6 +1210,191 @@ class TestHandleUserMessageTranslationModeShortCircuit:
         orch.translation_mode.start.assert_not_called()
 
 
+class TestMaybeCancelTask:
+    def _bare_orchestrator(self):
+        orch = CompanionOrchestrator.__new__(CompanionOrchestrator)
+        orch.task_manager = MagicMock()
+        orch._active_task_id = None
+        return orch
+
+    def test_cancels_the_active_task(self):
+        orch = self._bare_orchestrator()
+        orch._active_task_id = "task-123"
+
+        reply = orch._maybe_cancel_task("cancela a tarefa")
+
+        orch.task_manager.cancel.assert_called_once_with("task-123")
+        assert orch._active_task_id is None
+        assert reply == "Beleza, parei a tarefa."
+
+    def test_nothing_running_returns_a_different_reply_without_calling_cancel(self):
+        orch = self._bare_orchestrator()
+
+        reply = orch._maybe_cancel_task("para a tarefa")
+
+        orch.task_manager.cancel.assert_not_called()
+        assert reply == "Não tem nenhuma tarefa rodando pra cancelar."
+
+    def test_unrelated_message_returns_none(self):
+        orch = self._bare_orchestrator()
+        orch._active_task_id = "task-123"
+
+        reply = orch._maybe_cancel_task("oi, tudo bem?")
+
+        assert reply is None
+        orch.task_manager.cancel.assert_not_called()
+        assert orch._active_task_id == "task-123"
+
+
+class TestStartAgentTask:
+    def _bare_orchestrator(self):
+        orch = CompanionOrchestrator.__new__(CompanionOrchestrator)
+        orch.agent_engine = MagicMock()
+        orch._active_task_id = None
+        return orch
+
+    def test_starts_the_task_and_tracks_its_id(self):
+        orch = self._bare_orchestrator()
+        orch.agent_engine.run.return_value = "task-456"
+
+        orch._start_agent_task("descobrir o preço do produto X")
+
+        orch.agent_engine.run.assert_called_once()
+        call_args = orch.agent_engine.run.call_args
+        assert call_args[0][0] == "descobrir o preço do produto X"
+        assert call_args[1]["on_finish"] == orch._on_agent_task_finished
+        assert orch._active_task_id == "task-456"
+
+    def test_strips_whitespace_from_the_goal(self):
+        orch = self._bare_orchestrator()
+        orch._start_agent_task("  fazer algo  ")
+        assert orch.agent_engine.run.call_args[0][0] == "fazer algo"
+
+    def test_empty_goal_does_not_start_anything(self):
+        orch = self._bare_orchestrator()
+        orch._start_agent_task("")
+        orch.agent_engine.run.assert_not_called()
+
+    def test_non_string_goal_does_not_start_anything(self):
+        orch = self._bare_orchestrator()
+        orch._start_agent_task(None)
+        orch.agent_engine.run.assert_not_called()
+
+
+class TestOnAgentTaskFinished:
+    def _bare_orchestrator(self):
+        orch = CompanionOrchestrator.__new__(CompanionOrchestrator)
+        orch.state_manager = MagicMock()
+        orch.memory_manager = MagicMock()
+        orch.tts = MagicMock()
+        orch.settings = FakeSettings()
+        orch.event_bus = EventBus()
+        orch._active_task_id = "task-789"
+        return orch
+
+    def test_success_speaks_the_result_and_clears_active_task(self, monkeypatch):
+        import threading
+        orch = self._bare_orchestrator()
+        monkeypatch.setattr(threading, "Thread", _SyncThread)
+
+        orch._on_agent_task_finished("o preço é R$50", True)
+
+        assert orch._active_task_id is None
+        orch.memory_manager.record_turn.assert_called_once_with("", "o preço é R$50")
+        orch.state_manager.set_emotion.assert_any_call("HAPPY", reason="Agent task finished")
+
+    def test_failure_uses_sad_emotion(self, monkeypatch):
+        import threading
+        orch = self._bare_orchestrator()
+        monkeypatch.setattr(threading, "Thread", _SyncThread)
+
+        orch._on_agent_task_finished("Limite de 15 passos atingido.", False)
+
+        orch.state_manager.set_emotion.assert_any_call("SAD", reason="Agent task finished")
+
+    def test_empty_result_falls_back_to_a_generic_message(self, monkeypatch):
+        import threading
+        orch = self._bare_orchestrator()
+        monkeypatch.setattr(threading, "Thread", _SyncThread)
+
+        orch._on_agent_task_finished("", True)
+
+        orch.memory_manager.record_turn.assert_called_once_with("", "Terminei a tarefa.")
+
+    def test_empty_result_on_failure_falls_back_to_a_generic_failure_message(self, monkeypatch):
+        import threading
+        orch = self._bare_orchestrator()
+        monkeypatch.setattr(threading, "Thread", _SyncThread)
+
+        orch._on_agent_task_finished("", False)
+
+        orch.memory_manager.record_turn.assert_called_once_with("", "Não consegui terminar a tarefa.")
+
+
+class TestHandleUserMessageStartTask:
+    def _bare_orchestrator(self):
+        orch = CompanionOrchestrator.__new__(CompanionOrchestrator)
+        orch.event_bus = EventBus()
+        orch.state_manager = MagicMock()
+        orch.memory_manager = MagicMock()
+        orch.memory_manager.get_memories.return_value = {}
+        orch.memory_manager.get_history.return_value = []
+        orch.context_manager = MagicMock()
+        orch.context_manager.build_prompt_context.return_value = "prompt"
+        orch.settings = FakeSettings()
+        orch.screen_capture = MagicMock()
+        orch.ai_provider = MagicMock()
+        orch.ai_vision_provider = None
+        orch.action_manager = MagicMock()
+        orch.tts = MagicMock()
+        orch.system_audio_listener = MagicMock()
+        orch.nerd_mode_enabled = False
+        orch.scheduler = MagicMock()
+        orch.translation_mode = MagicMock()
+        orch.translation_mode.state = TranslationModeState.OFF
+        orch._active_task_id = None
+        orch.agent_engine = MagicMock()
+        orch._last_interaction_time = 0.0
+        orch.agent_core = AgentCore(build_default_registry(orch.action_manager, orch.memory_manager), orch.event_bus)
+        return orch
+
+    def test_start_task_action_hands_off_to_the_agent_engine(self, monkeypatch):
+        import threading
+        import json
+        orch = self._bare_orchestrator()
+        orch.agent_engine.run.return_value = "task-abc"
+        orch.ai_provider.chat.return_value = json.dumps({
+            "speech": "pode deixar, já vou ver isso", "emotion": "HAPPY",
+            "action": "start_task", "action_param": "descobrir o preço do produto X",
+        })
+        monkeypatch.setattr(threading, "Thread", _SyncThread)
+        responses = []
+
+        orch.handle_user_message("descobre quanto custa o produto X", on_response=lambda r: responses.append(r))
+
+        orch.agent_engine.run.assert_called_once()
+        assert orch.agent_engine.run.call_args[0][0] == "descobrir o preço do produto X"
+        assert orch._active_task_id == "task-abc"
+        assert responses == ["pode deixar, já vou ver isso"]
+
+    def test_start_task_does_not_go_through_the_normal_tool_dispatch(self, monkeypatch):
+        """Regression guard: start_task must never reach AgentCore/ToolRegistry
+        — it isn't a registered tool, it's handled entirely by _start_agent_task."""
+        import threading
+        import json
+        orch = self._bare_orchestrator()
+        orch.agent_core = MagicMock()
+        orch.ai_provider.chat.return_value = json.dumps({
+            "speech": "ok", "emotion": "HAPPY", "action": "start_task", "action_param": "fazer algo",
+        })
+        monkeypatch.setattr(threading, "Thread", _SyncThread)
+
+        orch.handle_user_message("faz algo complexo pra mim")
+
+        orch.agent_core.execute.assert_not_called()
+        orch.agent_engine.run.assert_called_once()
+
+
 class TestMaybeSpeakSpontaneously:
     def _bare_orchestrator(self, **overrides):
         orch = CompanionOrchestrator.__new__(CompanionOrchestrator)

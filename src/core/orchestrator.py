@@ -106,6 +106,12 @@ TRANSLATION_MODE_DISABLED_REPLY = "Tradução desativada."
 TRANSLATION_MODE_ALREADY_ON_REPLY = "A tradução já está ativada."
 TRANSLATION_MODE_ALREADY_OFF_REPLY = "A tradução já estava desativada."
 
+# Cancels the Agent Engine's currently-running task (FASE 10 chat trigger,
+# see _start_agent_task / _maybe_cancel_task).
+CANCEL_TASK_PHRASES = ["cancela a tarefa", "cancela isso", "para a tarefa", "para com isso"]
+CANCEL_TASK_CANCELLED_REPLY = "Beleza, parei a tarefa."
+CANCEL_TASK_NOTHING_RUNNING_REPLY = "Não tem nenhuma tarefa rodando pra cancelar."
+
 # NERD MODE makes spontaneous talk noticeably more present — shorter checks
 # and a shorter idle gap — without yet being the full multi-signal relevance
 # scoring described in the roadmap (InitiativeEngine, not built yet).
@@ -311,16 +317,22 @@ class CompanionOrchestrator:
             self.tool_registry, self.event_bus, confirm_fn=self.confirm_fn, policy_manager=self.policy_manager,
         )
 
-        # Agent Engine (FASE 2) — multi-step goal execution (OBSERVAR/DECIDIR/
-        # AGIR/VERIFICAR/REPETIR), reusing this same agent_core so a task-loop
-        # step still goes through the real CONFIRM/allowlist flow (and only
-        # ever sees mouse/keyboard/terminal as options if the switches above
-        # are on). Not yet wired to a chat trigger phrase — that's a
-        # deliberate later decision, see docs/ARCHITECTURE.md.
+        # Agent Engine (FASE 2/10) — multi-step goal execution (OBSERVAR/
+        # DECIDIR/AGIR/VERIFICAR/REPETIR), reusing this same agent_core so a
+        # task-loop step still goes through the real CONFIRM/allowlist flow
+        # (and only ever sees mouse/keyboard/terminal as options if the
+        # switches above are on). Reachable from chat via the AI's own
+        # "start_task" action (see handle_user_message) — the AI decides
+        # when a request genuinely needs multiple steps, per SYSTEM_PROMPT's
+        # explicit rule for when to use it vs. a direct single action.
         self.task_manager = TaskManager(self.event_bus)
         self.agent_engine = AgentEngine(
             self.ai_complex_provider or self.ai_provider, self.agent_core, self.task_manager, self.event_bus,
         )
+        # Tracks the most recently started agent task so a deterministic
+        # "cancela a tarefa" command has something to cancel — see
+        # _maybe_cancel_task. Only one task at a time is supported for now.
+        self._active_task_id: Optional[str] = None
 
         # Initialize TTS & Voice Input
         self.tts = self._init_tts_provider()
@@ -590,6 +602,48 @@ class CompanionOrchestrator:
             return TRANSLATION_MODE_ENABLED_REPLY
         return None
 
+    def _maybe_cancel_task(self, user_text: str) -> Optional[str]:
+        """Deterministic short-circuit, same pattern as the others above —
+        stopping a running Agent Engine task is exactly the kind of command
+        that should never wait on an AI round-trip to take effect."""
+        if not self._contains_any(user_text, *CANCEL_TASK_PHRASES):
+            return None
+        if self._active_task_id is None:
+            return CANCEL_TASK_NOTHING_RUNNING_REPLY
+        self.task_manager.cancel(self._active_task_id)
+        self._active_task_id = None
+        return CANCEL_TASK_CANCELLED_REPLY
+
+    def _start_agent_task(self, goal):
+        """Hands a goal off to the Agent Engine's multi-step loop instead of
+        a single ToolRegistry dispatch — see handle_user_message's
+        "start_task" branch and SYSTEM_PROMPT's rule for when the AI should
+        choose this over a direct action. Only one task tracked at a time
+        (see _active_task_id) — starting a new one while another runs just
+        replaces what "cancela a tarefa" would target next, it doesn't stop
+        the previous one (TaskManager itself has no such limit; this is
+        purely about what the single cancel command reaches)."""
+        if not isinstance(goal, str) or not goal.strip():
+            return
+        self._active_task_id = self.agent_engine.run(goal.strip(), on_finish=self._on_agent_task_finished)
+
+    def _on_agent_task_finished(self, result: str, success: bool):
+        """agent_engine's on_finish callback — runs on the Agent Engine's own
+        worker thread, not the GUI thread. Safe to call state_manager/
+        _speak_async from here anyway: both ultimately go through Qt
+        Signals (AnimationManager.frame_changed, EventBus's own dispatcher)
+        that auto-queue across threads — same reasoning already relied on by
+        _on_reminder_fired and the spontaneous-comment/task-outcome workers."""
+        self._active_task_id = None
+        speech = result.strip() if isinstance(result, str) and result.strip() else (
+            "Terminei a tarefa." if success else "Não consegui terminar a tarefa."
+        )
+        self.state_manager.set_state("TALKING", reason="Agent task finished")
+        self.state_manager.set_emotion("HAPPY" if success else "SAD", reason="Agent task finished")
+        self.memory_manager.record_turn("", speech)
+        self._speak_async(speech)
+        self.event_bus.emit(SPONTANEOUS_SPEECH, speech=speech)
+
     def _maybe_create_reminder(self, user_text: str) -> Optional[str]:
         """Same deterministic short-circuit pattern as _maybe_toggle_nerd_mode:
         a real reminder request ("me lembra em 10 minutos de X") gets an
@@ -826,6 +880,14 @@ class CompanionOrchestrator:
                             on_response(translation_mode_reply)
                         return
 
+                    cancel_task_reply = self._maybe_cancel_task(user_text)
+                    if cancel_task_reply is not None:
+                        self.memory_manager.record_turn(user_text, cancel_task_reply)
+                        self._speak_async(cancel_task_reply)
+                        if on_response:
+                            on_response(cancel_task_reply)
+                        return
+
                     self._maybe_activate_vision_command(user_text)
                     self._maybe_activate_system_audio_command(user_text)
                     self._maybe_toggle_spontaneous_talk(user_text)
@@ -881,8 +943,13 @@ class CompanionOrchestrator:
                     speech = "Desculpa, não consegui pensar em uma resposta agora. Pode repetir?"
                     emotion = "CONFUSED"
 
-                # Perform action if requested
-                self._execute_action(action, action_param)
+                # Perform action if requested — "start_task" is special: it's
+                # not a ToolRegistry tool, it hands the goal off to the Agent
+                # Engine's multi-step loop instead of a single dispatch call.
+                if action == "start_task":
+                    self._start_agent_task(action_param)
+                else:
+                    self._execute_action(action, action_param)
 
                 # Record memory
                 self.memory_manager.record_turn(user_text, speech)

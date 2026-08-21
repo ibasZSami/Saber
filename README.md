@@ -119,9 +119,13 @@ de OBSERVAR → DECIDIR → AGIR → VERIFICAR → REPETIR até concluir ou até
 segurança (número de passos, tempo, ou a mesma ação repetindo). Cada passo ainda passa pelo mesmo
 `AgentCore`/allowlist/confirmação do chat normal — uma tarefa multi-passo não tem atalho de
 permissão. Inclui `observe_screen` (lê o texto da tela por OCR, pra decidir o próximo passo) e
-`activate_translation_mode` como ferramentas de verdade, não só descritivas. Ainda não conectado a
-um comando de chat dedicado pra iniciar uma tarefa autônoma (é o motor, testado e funcional, sem
-gatilho de invocação ainda) — ver `docs/ARCHITECTURE.md`.
+`activate_translation_mode` como ferramentas de verdade, não só descritivas.
+
+A própria IA decide quando um pedido precisa de várias ações em sequência (ação `start_task`) —
+regra explícita no prompt pra usar isso só quando de fato precisa de múltiplos passos dependentes,
+nunca pra uma pergunta simples ou uma ação só. Silva avisa que vai trabalhar nisso, executa em
+segundo plano (não trava a conversa), e anuncia o resultado na própria voz quando termina. A
+qualquer momento dá pra cancelar dizendo **"cancela a tarefa"**. Ver `docs/ARCHITECTURE.md`.
 
 ### Sistema & Conveniência
 - **Inicialização automática com o Windows**, ativa por padrão — liga/desliga a qualquer momento
@@ -191,7 +195,7 @@ voz e permissões iniciais.
 pytest tests/ --cov=src --cov-report=term-missing
 ```
 
-874 testes (91% de cobertura) cobrindo orquestrador, ferramentas/permissões, Agent Engine (task
+887 testes (91% de cobertura) cobrindo orquestrador, ferramentas/permissões, Agent Engine (task
 loop), mouse/teclado, terminal controlado, OCR estruturado, Translation Engine, overlay, Modo
 Tradução, voz, visão contínua, memória, lembretes/scheduler, notícias, mixer de som, autostart,
 pesquisa em segundo plano, Modo Nerd, tela de Aplicativos, sprites/animação, estado
@@ -224,10 +228,6 @@ acima). O que falta, em ordem:
   (`plugins/discord/`, `plugins/spotify/`, etc.), não uma prioridade imediata.
 - **Empacotamento**: hoje roda só via `install.bat`/`run.bat` + Python — gerar um instalador
   (`Silva-Setup.exe`) fica pra depois, sem prioridade sobre o resto.
-- **Gatilho de chat pro Agent Engine autônomo**: o motor de tarefa multi-passo existe e funciona
-  (testado), mas nada em texto/voz ainda dispara "faça X como uma tarefa longa" — hoje só é
-  usável programaticamente. Decisão de UX pendente (como diferenciar um pedido de tarefa longa de
-  uma pergunta normal), não implementação.
 - **Browser real (nível DOM)**: "abrir navegador e pesquisar X" funciona (`open_url`/`search_web`),
   mas clicar/ler dentro de uma página específica precisaria de Playwright/Selenium — dependência
   pesada (baixa um Chromium inteiro), deixada de fora de propósito por enquanto. Mouse/teclado já

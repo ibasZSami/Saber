@@ -99,10 +99,23 @@ OBSERVAR (histórico de passos) → DECIDIR (1 chamada à IA) → AGIR (AgentCor
   CONFIRM dentro de uma tarefa multi-passo ainda pede confirmação de
   verdade, sem atalho.
 
-Ainda não conectado a um comando de chat multi-passo dedicado (`"faça X"`
-como objetivo autônomo não dispara isso ainda) — fica para uma decisão
-futura. As ferramentas abaixo (FASE 3) já funcionam também no chat normal
-de um passo só, via `AgentCore` diretamente.
+**FASE 10 — gatilho de chat**: a própria IA decide quando usar a ação
+`start_task` no lugar de uma ação direta — regra explícita no
+`SYSTEM_PROMPT` (só para pedidos que genuinamente precisam de vários
+passos dependentes, nunca pra pergunta simples ou ação única).
+`handle_user_message` intercepta essa ação antes de chegar no
+`AgentCore`/`ToolRegistry` (não é uma tool registrada) e chama
+`orchestrator._start_agent_task(goal)`, que dispara
+`agent_engine.run(goal, on_finish=self._on_agent_task_finished)`. O
+resultado final é anunciado na voz da Silva quando o loop termina —
+mesmo padrão já usado por `_on_reminder_fired`/`_announce_task_outcome`
+(o callback roda na thread do Agent Engine, não na thread da GUI, mas é
+seguro porque `state_manager`/`EventBus` já propagam entre threads via
+Qt Signal). `orchestrator._active_task_id` rastreia a tarefa mais
+recente para o comando determinístico "cancela a tarefa" ter o que
+cancelar. As ferramentas abaixo (FASE 3) já funcionavam também no chat
+normal de um passo só, via `AgentCore` diretamente, antes mesmo desse
+gatilho existir.
 
 **FASE 8 — resultado rico das ferramentas**: `AgentCore.execute()` sempre
 devolveu só um bool (sucesso/falha) — suficiente pro chat normal, mas
