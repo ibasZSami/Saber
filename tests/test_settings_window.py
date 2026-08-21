@@ -1,5 +1,7 @@
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from src.config.settings import Settings
 from src.core.activity_log import ActivityLog
 from src.core.event_bus import EventBus
@@ -13,6 +15,24 @@ def _settings(tmp_path, **overrides):
     for key, value in overrides.items():
         settings.set(key, value)
     return settings
+
+
+@pytest.fixture(autouse=True)
+def _mock_autostart():
+    """SettingsWindow.__init__ calls autostart.is_enabled() (a real
+    schtasks/registry query) and _save() calls autostart.set_enabled() (a
+    real schtasks/registry WRITE — creates/deletes an actual Windows
+    Scheduled Task). Every test in this file constructs a SettingsWindow,
+    and several call _save() — without this, running this file repeatedly
+    mutates the real machine's autostart registration as a side effect of
+    unit testing, and the resulting subprocess spam is also what triggered
+    a real `Fatal Python error: Aborted` crash partway through a full-suite
+    run once this file's test count grew large enough. None of these tests
+    are actually about autostart behavior — that's covered in
+    tests/test_autostart.py."""
+    with patch("src.ui.settings_window.autostart.is_enabled", return_value=False), \
+         patch("src.ui.settings_window.autostart.set_enabled", return_value=True):
+        yield
 
 
 class TestAppAllowlistTab:
