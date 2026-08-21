@@ -143,7 +143,7 @@ class SetupWizard(QWidget):
             # Save settings
             self.settings.set("character_name", self.name_input.text().strip())
             self.settings.set("ai_provider", self.ai_provider_combo.currentText())
-            self.settings.set("api_key", self.api_key_input.text().strip())
+            self.settings.set_api_key(self.api_key_input.text().strip())
             self.settings.set("ai_model", self.ai_model_input.text().strip())
             self.settings.set("screen_monitoring_enabled", self.screen_chk.isChecked())
             self.settings.set("microphone_enabled", self.mic_chk.isChecked())

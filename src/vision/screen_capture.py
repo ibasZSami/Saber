@@ -5,8 +5,13 @@ import io
 import base64
 
 
-def encode_image_base64(img: Image.Image, max_width: int = 1024, quality: int = 70) -> str:
-    """Downscales and JPEG-encodes an image for sending to a vision-capable AI model."""
+def encode_image_base64(img: Image.Image, max_width: int = 1120, quality: int = 85) -> str:
+    """Downscales and JPEG-encodes an image for sending to a vision-capable AI model.
+
+    1120px/quality 85 (up from 1024/70) — Llama-3.2 vision models tile input up to
+    ~1120px on the long side, so the old 1024/70 defaults threw away resolution the
+    model could actually use and added visible JPEG artifacting that made small text
+    and UI details hard to read, a real cause of imprecise screen descriptions."""
     if img.width > max_width:
         ratio = max_width / img.width
         img = img.resize((max_width, int(img.height * ratio)))

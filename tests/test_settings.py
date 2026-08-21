@@ -77,3 +77,60 @@ class TestApiKeyEnvPriority:
         with patch.dict(os.environ, {"OPENAI_API_KEY": "sk-openai-env"}, clear=False):
             settings = Settings(config_path=str(config_path))
             assert settings.get("api_key") == "stored-in-file"
+
+
+class TestSetApiKey:
+    """set_api_key() exists because the wizard/Settings screen used to call
+    plain set("api_key", ...), writing the secret into config.json — this
+    contradicted the documented design (secrets live only in .env) and meant
+    a fresh key never took effect via the env-var path get() prefers."""
+
+    def test_writes_to_env_file_next_to_config_not_config_json(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("NVIDIA_API_KEY", raising=False)
+        config_path = tmp_path / "config.json"
+        settings = Settings(config_path=str(config_path))
+
+        settings.set_api_key("nvapi-new-key")
+
+        env_content = (tmp_path / ".env").read_text(encoding="utf-8")
+        assert "NVIDIA_API_KEY=nvapi-new-key" in env_content
+        stored = json.loads(config_path.read_text(encoding="utf-8"))
+        assert "api_key" not in stored
+
+    def test_takes_effect_immediately_without_restart(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("NVIDIA_API_KEY", raising=False)
+        settings = Settings(config_path=str(tmp_path / "config.json"))
+
+        settings.set_api_key("nvapi-live-key")
+
+        assert settings.get("api_key") == "nvapi-live-key"
+
+    def test_updates_existing_env_var_in_place(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("NVIDIA_API_KEY", raising=False)
+        (tmp_path / ".env").write_text("NVIDIA_API_KEY=old-key\nOPENAI_API_KEY=\n", encoding="utf-8")
+        settings = Settings(config_path=str(tmp_path / "config.json"))
+
+        settings.set_api_key("new-key")
+
+        lines = (tmp_path / ".env").read_text(encoding="utf-8").splitlines()
+        assert "NVIDIA_API_KEY=new-key" in lines
+        assert "OPENAI_API_KEY=" in lines
+
+    def test_ignores_blank_value(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("NVIDIA_API_KEY", raising=False)
+        settings = Settings(config_path=str(tmp_path / "config.json"))
+
+        settings.set_api_key("")
+
+        assert not (tmp_path / ".env").exists()
+
+    def test_provider_without_env_mapping_falls_back_to_config(self, tmp_path):
+        config_path = tmp_path / "config.json"
+        config_path.write_text(json.dumps({"ai_provider": "ollama"}), encoding="utf-8")
+        settings = Settings(config_path=str(config_path))
+
+        settings.set_api_key("some-key")
+
+        assert not (tmp_path / ".env").exists()
+        stored = json.loads(config_path.read_text(encoding="utf-8"))
+        assert stored["api_key"] == "some-key"

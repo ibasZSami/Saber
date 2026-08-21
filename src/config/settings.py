@@ -95,3 +95,41 @@ class Settings:
     def set(self, key, value):
         self.data[key] = value
         self.save()
+
+    def set_api_key(self, value: str):
+        """Writes the API key to .env (keyed by the currently selected
+        provider) instead of config.json. get() already prefers the env var
+        over self.data["api_key"] when reading, but until now nothing ever
+        wrote there — the wizard and Settings screen both called set("api_key", ...),
+        putting the secret in config.json, contradicting the documented
+        design (secrets live only in .env). Also updates os.environ directly
+        so the change takes effect in this already-running process without a
+        restart, and clears any leftover plaintext copy from config.json."""
+        if not value:
+            return
+        provider = self.data.get("ai_provider", "nvidia")
+        env_var = ENV_KEY_BY_PROVIDER.get(provider)
+        if not env_var:
+            # Providers with no known env var (e.g. ollama, which needs no
+            # key) have nowhere to persist it — fall back to the old behavior
+            # rather than silently discarding what the user typed.
+            self.set("api_key", value)
+            return
+        os.environ[env_var] = value
+        self._write_env_var(env_var, value)
+        self.data.pop("api_key", None)
+        self.save()
+
+    def _write_env_var(self, key: str, value: str):
+        # Next to config.json, not the hardcoded project root — so a Settings
+        # instance pointed at a tmp_path config (as tests do) writes its own
+        # isolated .env instead of clobbering the real project's .env.
+        env_path = self.config_path.parent / ".env"
+        lines = env_path.read_text(encoding="utf-8").splitlines() if env_path.exists() else []
+        for i, line in enumerate(lines):
+            if line.strip().startswith(f"{key}="):
+                lines[i] = f"{key}={value}"
+                break
+        else:
+            lines.append(f"{key}={value}")
+        env_path.write_text("\n".join(lines) + "\n", encoding="utf-8")

@@ -1,4 +1,4 @@
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import src.core.autostart as autostart
 
@@ -16,14 +16,15 @@ class _FakeKey:
 
 class FakeWinreg:
     """Minimal in-memory stand-in for the winreg module, so tests never touch
-    the real Windows registry."""
+    the real Windows registry — only used here for the legacy Run-key cleanup
+    path, since autostart itself now lives in the Scheduled Task."""
     HKEY_CURRENT_USER = "HKCU"
     KEY_READ = 1
     KEY_SET_VALUE = 2
     REG_SZ = 1
 
-    def __init__(self):
-        self.values = {}
+    def __init__(self, values=None):
+        self.values = values or {}
 
     def OpenKey(self, hive, path, reserved, access):
         return _FakeKey(self)
@@ -42,66 +43,171 @@ class FakeWinreg:
         del key.registry.values[name]
 
 
-class TestIsEnabled:
-    def test_false_when_no_value_set(self):
-        with patch.object(autostart, "winreg", FakeWinreg()):
-            assert autostart.is_enabled() is False
+def _completed(returncode=0, stderr=b""):
+    result = MagicMock()
+    result.returncode = returncode
+    result.stderr = stderr
+    return result
 
-    def test_true_after_enabling(self):
-        with patch.object(autostart, "winreg", FakeWinreg()):
-            autostart.set_enabled(True)
+
+class TestIsEnabled:
+    @patch.object(autostart, "winreg", None)
+    @patch("subprocess.run")
+    def test_true_when_task_query_succeeds(self, mock_run):
+        mock_run.return_value = _completed(returncode=0)
+        assert autostart.is_enabled() is True
+        args = mock_run.call_args[0][0]
+        assert args[:3] == ["schtasks", "/query", "/tn"]
+        assert autostart.TASK_NAME in args
+
+    @patch.object(autostart, "winreg", None)
+    @patch("subprocess.run")
+    def test_false_when_task_does_not_exist(self, mock_run):
+        mock_run.return_value = _completed(returncode=1)
+        assert autostart.is_enabled() is False
+
+    @patch.object(autostart, "winreg", None)
+    @patch("subprocess.run", side_effect=OSError("schtasks not found"))
+    def test_false_when_schtasks_unavailable(self, mock_run):
+        assert autostart.is_enabled() is False
+
+    @patch("subprocess.run")
+    def test_true_when_task_missing_but_legacy_run_key_present(self, mock_run):
+        """Fallback signal: if the Scheduled Task couldn't be created on this
+        machine (see TestFallsBackToRunKey) but the legacy Run-key is set,
+        Silva is still genuinely registered to auto-launch — just via the
+        older mechanism."""
+        mock_run.return_value = _completed(returncode=1)
+        fake = FakeWinreg({autostart.REGISTRY_VALUE_NAME: "some command"})
+        with patch.object(autostart, "winreg", fake):
             assert autostart.is_enabled() is True
 
-    def test_false_when_winreg_unavailable(self):
-        with patch.object(autostart, "winreg", None):
-            assert autostart.is_enabled() is False
-
-    def test_false_on_registry_error(self):
-        fake = FakeWinreg()
-        fake.QueryValueEx = lambda key, name: (_ for _ in ()).throw(OSError("boom"))
+    @patch("subprocess.run")
+    def test_false_when_neither_mechanism_is_registered(self, mock_run):
+        mock_run.return_value = _completed(returncode=1)
+        fake = FakeWinreg({})
         with patch.object(autostart, "winreg", fake):
             assert autostart.is_enabled() is False
 
 
-class TestSetEnabled:
-    def test_enabling_writes_launch_command(self):
-        fake = FakeWinreg()
+class TestSetEnabledCreatesTask:
+    @patch.object(autostart, "winreg", None)
+    @patch("subprocess.run")
+    def test_enabling_creates_task_via_xml(self, mock_run):
+        mock_run.return_value = _completed(returncode=0)
+
+        result = autostart.set_enabled(True)
+
+        assert result is True
+        args = mock_run.call_args[0][0]
+        assert args[0] == "schtasks"
+        assert "/create" in args
+        assert "/tn" in args
+        assert autostart.TASK_NAME in args
+        assert "/xml" in args
+
+    @patch.object(autostart, "winreg", None)
+    @patch("subprocess.run")
+    def test_enabling_returns_false_on_failure(self, mock_run):
+        mock_run.return_value = _completed(returncode=1, stderr=b"Access denied")
+
+        assert autostart.set_enabled(True) is False
+
+    @patch.object(autostart, "winreg", None)
+    @patch("subprocess.run", side_effect=OSError("boom"))
+    def test_enabling_returns_false_when_schtasks_unavailable(self, mock_run):
+        assert autostart.set_enabled(True) is False
+
+    @patch.object(autostart, "winreg", None)
+    @patch("os.unlink")
+    @patch("subprocess.run")
+    def test_temp_xml_file_is_cleaned_up(self, mock_run, mock_unlink):
+        mock_run.return_value = _completed(returncode=0)
+
+        autostart.set_enabled(True)
+
+        mock_unlink.assert_called_once()
+
+
+class TestSetEnabledRemovesTask:
+    @patch.object(autostart, "winreg", None)
+    @patch("subprocess.run")
+    def test_disabling_deletes_task(self, mock_run):
+        mock_run.return_value = _completed(returncode=0)
+
+        result = autostart.set_enabled(False)
+
+        assert result is True
+        args = mock_run.call_args[0][0]
+        assert args[0] == "schtasks"
+        assert "/delete" in args
+        assert autostart.TASK_NAME in args
+
+    @patch.object(autostart, "winreg", None)
+    @patch("subprocess.run")
+    def test_disabling_when_already_disabled_is_a_noop(self, mock_run):
+        # /delete fails (nothing to delete), then the is_enabled() recheck
+        # also reports "not there" — treated as success, not a real failure.
+        mock_run.side_effect = [_completed(returncode=1), _completed(returncode=1)]
+
+        assert autostart.set_enabled(False) is True
+
+
+class TestFallsBackToRunKey:
+    """Some machines deny `schtasks /create` to the current account even for a
+    per-user task (seen in the field as a bare "Acesso negado") — autostart
+    should still end up working via the legacy Run-key instead of just
+    logging an error and leaving the user with nothing registered."""
+
+    @patch("subprocess.run")
+    def test_enabling_falls_back_when_task_creation_is_denied(self, mock_run):
+        mock_run.return_value = _completed(returncode=1, stderr=b"Acesso negado")
+        fake = FakeWinreg({})
         with patch.object(autostart, "winreg", fake):
             result = autostart.set_enabled(True)
 
         assert result is True
-        assert autostart.REGISTRY_VALUE_NAME in fake.values
-        assert "main.py" in fake.values[autostart.REGISTRY_VALUE_NAME]
+        assert fake.values[autostart.REGISTRY_VALUE_NAME] == autostart._launch_command()
 
-    def test_disabling_removes_value(self):
-        fake = FakeWinreg()
-        with patch.object(autostart, "winreg", fake):
-            autostart.set_enabled(True)
-            result = autostart.set_enabled(False)
-
-        assert result is True
-        assert autostart.REGISTRY_VALUE_NAME not in fake.values
-
-    def test_disabling_when_already_disabled_is_a_noop(self):
-        fake = FakeWinreg()
-        with patch.object(autostart, "winreg", fake):
-            result = autostart.set_enabled(False)
-
-        assert result is True
-        assert autostart.REGISTRY_VALUE_NAME not in fake.values
-
-    def test_returns_false_when_winreg_unavailable(self):
+    @patch("subprocess.run")
+    def test_returns_false_when_both_mechanisms_fail(self, mock_run):
+        mock_run.return_value = _completed(returncode=1, stderr=b"Acesso negado")
         with patch.object(autostart, "winreg", None):
             assert autostart.set_enabled(True) is False
 
-    def test_returns_false_on_registry_error(self):
-        fake = FakeWinreg()
-        fake.OpenKey = lambda *a: (_ for _ in ()).throw(OSError("boom"))
+    @patch("subprocess.run")
+    def test_successful_task_creation_cleans_up_any_fallback_entry(self, mock_run):
+        """Once the Scheduled Task works (e.g. after a machine's policy
+        changes), any Run-key left over from an earlier fallback must be
+        removed — otherwise Silva would launch twice on every logon."""
+        mock_run.return_value = _completed(returncode=0)
+        fake = FakeWinreg({autostart.REGISTRY_VALUE_NAME: "old fallback command"})
         with patch.object(autostart, "winreg", fake):
-            assert autostart.set_enabled(True) is False
+            result = autostart.set_enabled(True)
+
+        assert result is True
+        assert autostart.REGISTRY_VALUE_NAME not in fake.values
 
 
-class TestLaunchCommand:
+class TestLegacyRunKeyCleanup:
+    def test_removes_leftover_legacy_entry_when_present(self):
+        fake = FakeWinreg({autostart.REGISTRY_VALUE_NAME: "some old command"})
+        with patch.object(autostart, "winreg", fake), patch("subprocess.run", return_value=_completed(0)):
+            autostart.set_enabled(True)
+        assert autostart.REGISTRY_VALUE_NAME not in fake.values
+
+    def test_no_error_when_no_legacy_entry_exists(self):
+        fake = FakeWinreg({})
+        with patch.object(autostart, "winreg", fake), patch("subprocess.run", return_value=_completed(0)):
+            result = autostart.set_enabled(True)
+        assert result is True
+
+    def test_no_error_when_winreg_unavailable(self):
+        with patch.object(autostart, "winreg", None), patch("subprocess.run", return_value=_completed(0)):
+            assert autostart.set_enabled(True) is True
+
+
+class TestLaunchPaths:
     def test_uses_pythonw_when_available(self):
         with patch("os.path.exists", return_value=True):
             cmd = autostart._launch_command()
@@ -111,3 +217,24 @@ class TestLaunchCommand:
         with patch("os.path.exists", return_value=False):
             cmd = autostart._launch_command()
         assert "pythonw.exe" not in cmd
+
+
+class TestTaskXml:
+    def test_includes_logon_and_session_unlock_triggers(self):
+        """The whole point of the Task Scheduler switch: cover both a fresh
+        logon AND waking/unlocking an already-running session, since a
+        Run-key entry only ever fires on the former."""
+        xml = autostart._task_xml()
+        assert "<LogonTrigger>" in xml
+        assert "<SessionStateChangeTrigger>" in xml
+        assert "<StateChange>SessionUnlock</StateChange>" in xml
+
+    def test_ignores_new_instance_if_already_running(self):
+        xml = autostart._task_xml()
+        assert "<MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>" in xml
+
+    def test_embeds_the_resolved_interpreter_and_main_py(self):
+        with patch("os.path.exists", return_value=True):
+            xml = autostart._task_xml()
+        assert "pythonw.exe" in xml
+        assert "main.py" in xml
