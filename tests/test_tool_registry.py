@@ -245,6 +245,53 @@ class TestResearchTopicDispatch:
         assert registry.get("research_topic").dispatch is None
 
 
+class TestCreateReminderDispatch:
+    def _registry(self):
+        action_manager, memory_manager = MagicMock(), MagicMock()
+        scheduler = MagicMock()
+        registry = build_default_registry(action_manager, memory_manager, scheduler=scheduler)
+        return registry, scheduler
+
+    def test_dispatch_creates_a_reminder_via_the_scheduler(self):
+        registry, scheduler = self._registry()
+
+        result = registry.get("create_reminder").dispatch({"message": "tirar o bolo", "minutes_from_now": 10})
+
+        assert result is True
+        scheduler.create.assert_called_once()
+        call_args = scheduler.create.call_args[0]
+        assert call_args[0] == "tirar o bolo"
+
+    def test_dispatch_rejects_missing_message(self):
+        registry, scheduler = self._registry()
+        result = registry.get("create_reminder").dispatch({"minutes_from_now": 10})
+        assert result is False
+        scheduler.create.assert_not_called()
+
+    def test_dispatch_rejects_non_numeric_minutes(self):
+        registry, scheduler = self._registry()
+        result = registry.get("create_reminder").dispatch({"message": "x", "minutes_from_now": "logo"})
+        assert result is False
+        scheduler.create.assert_not_called()
+
+    def test_dispatch_rejects_non_positive_minutes(self):
+        registry, scheduler = self._registry()
+        result = registry.get("create_reminder").dispatch({"message": "x", "minutes_from_now": 0})
+        assert result is False
+        scheduler.create.assert_not_called()
+
+    def test_dispatch_rejects_non_dict_param(self):
+        registry, scheduler = self._registry()
+        result = registry.get("create_reminder").dispatch("x")
+        assert result is False
+        scheduler.create.assert_not_called()
+
+    def test_no_dispatch_when_scheduler_not_provided(self):
+        action_manager, memory_manager = MagicMock(), MagicMock()
+        registry = build_default_registry(action_manager, memory_manager)
+        assert registry.get("create_reminder").dispatch is None
+
+
 class TestDescribeTools:
     def test_returns_every_tool_with_name_and_description(self):
         schema = describe_tools()
@@ -252,6 +299,7 @@ class TestDescribeTools:
         assert names == {
             "observe_screen", "translate_screen", "open_application", "close_application",
             "open_url", "search_web", "remember", "forget_memory", "set_app_volume", "research_topic",
+            "create_reminder",
         }
         assert all("description" in entry for entry in schema)
 

@@ -34,6 +34,9 @@ class _FakeOrchestrator:
         self.background_task_manager = MagicMock()
         self.background_task_manager.list_tasks.return_value = []
 
+        self.scheduler = MagicMock()
+        self.scheduler.list_pending.return_value = []
+
         self.memory_manager = MagicMock()
         self.memory_manager.get_memories.return_value = {}
 
@@ -95,6 +98,20 @@ class TestVisionSection:
 
         assert snapshot["vision"]["monitoring_enabled"] is True
         assert snapshot["vision"]["private_mode"] is False
+
+    def test_omits_mode_when_orchestrator_has_no_compute_vision_mode(self):
+        """_FakeOrchestrator has no _compute_vision_mode (unlike the real
+        CompanionOrchestrator) — must degrade gracefully, not raise."""
+        orch = _FakeOrchestrator()
+        snapshot = SilvaState(orch).snapshot()
+        assert "mode" not in snapshot["vision"]
+
+    def test_includes_mode_when_orchestrator_provides_it(self):
+        from src.vision.continuous_vision import VisionMode
+        orch = _FakeOrchestrator()
+        orch._compute_vision_mode = lambda: VisionMode.ACTIVE
+        snapshot = SilvaState(orch).snapshot()
+        assert snapshot["vision"]["mode"] == "ACTIVE"
 
 
 class TestVoiceSection:
@@ -162,7 +179,18 @@ class TestTasksSection:
     def test_missing_background_task_manager_yields_empty_not_an_exception(self):
         orch = _FakeOrchestrator(background_task_manager=None)
         snapshot = SilvaState(orch).snapshot()
-        assert snapshot["tasks"] == {"running": [], "running_count": 0}
+        assert snapshot["tasks"] == {"running": [], "running_count": 0, "pending_reminders_count": 0}
+
+    def test_reflects_pending_reminders_count(self):
+        orch = _FakeOrchestrator()
+        orch.scheduler.list_pending.return_value = [MagicMock(), MagicMock()]
+        snapshot = SilvaState(orch).snapshot()
+        assert snapshot["tasks"]["pending_reminders_count"] == 2
+
+    def test_missing_scheduler_yields_zero_not_an_exception(self):
+        orch = _FakeOrchestrator(scheduler=None)
+        snapshot = SilvaState(orch).snapshot()
+        assert snapshot["tasks"]["pending_reminders_count"] == 0
 
 
 class TestMemorySection:

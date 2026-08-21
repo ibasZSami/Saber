@@ -46,11 +46,16 @@ class SilvaState:
         }
 
     def _vision(self) -> dict:
-        settings = self._orch.settings
-        return {
+        orch = self._orch
+        settings = orch.settings
+        result = {
             "monitoring_enabled": settings.get("screen_monitoring_enabled", False),
             "private_mode": settings.get("private_mode", True),
         }
+        compute_mode = getattr(orch, "_compute_vision_mode", None)
+        if compute_mode is not None:
+            result["mode"] = compute_mode().value
+        return result
 
     def _voice(self) -> dict:
         orch = self._orch
@@ -69,9 +74,16 @@ class SilvaState:
     def _tasks(self) -> dict:
         manager = getattr(self._orch, "background_task_manager", None)
         if manager is None:
-            return {"running": [], "running_count": 0}
-        running = [t for t in manager.list_tasks() if t["status"] in ("PENDING", "RUNNING")]
-        return {"running": running, "running_count": len(running)}
+            running, running_count = [], 0
+        else:
+            running = [t for t in manager.list_tasks() if t["status"] in ("PENDING", "RUNNING")]
+            running_count = len(running)
+        scheduler = getattr(self._orch, "scheduler", None)
+        pending_reminders = scheduler.list_pending() if scheduler is not None else []
+        return {
+            "running": running, "running_count": running_count,
+            "pending_reminders_count": len(pending_reminders),
+        }
 
     def _memory(self) -> dict:
         memories = self._orch.memory_manager.get_memories()

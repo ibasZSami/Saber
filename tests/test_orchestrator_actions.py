@@ -743,6 +743,94 @@ class TestHandleUserMessageNerdShortCircuit:
         orch.ai_provider.chat.assert_called_once()
 
 
+class TestHandleUserMessageReminderShortCircuit:
+    """A recognizable reminder request must never reach the AI provider —
+    same short-circuit shape as nerd mode above, see _maybe_create_reminder."""
+
+    def _bare_orchestrator(self):
+        orch = CompanionOrchestrator.__new__(CompanionOrchestrator)
+        orch.event_bus = EventBus()
+        orch.state_manager = MagicMock()
+        orch.memory_manager = MagicMock()
+        orch.settings = FakeSettings()
+        orch.nerd_mode_enabled = False
+        orch.tts = MagicMock()
+        orch._last_interaction_time = 0.0
+        orch.ai_provider = MagicMock()
+        orch.scheduler = MagicMock()
+        return orch
+
+    def test_reminder_command_speaks_confirmation_without_calling_ai(self, monkeypatch):
+        import threading
+        orch = self._bare_orchestrator()
+        monkeypatch.setattr(threading, "Thread", _SyncThread)
+        responses = []
+
+        orch.handle_user_message("me lembra em 10 minutos de tirar o bolo", on_response=lambda r: responses.append(r))
+
+        assert len(responses) == 1
+        assert "tirar o bolo" in responses[0]
+        orch.ai_provider.chat.assert_not_called()
+        orch.scheduler.create.assert_called_once()
+
+    def test_confirmation_is_recorded_into_history(self, monkeypatch):
+        import threading
+        orch = self._bare_orchestrator()
+        monkeypatch.setattr(threading, "Thread", _SyncThread)
+
+        orch.handle_user_message("me avisa em 5 minutos de pausar o jogo")
+
+        orch.memory_manager.record_turn.assert_called_once()
+        call_args = orch.memory_manager.record_turn.call_args[0]
+        assert call_args[0] == "me avisa em 5 minutos de pausar o jogo"
+        assert "pausar o jogo" in call_args[1]
+
+    def test_ordinary_message_is_not_mistaken_for_a_reminder(self, monkeypatch):
+        import threading
+        import json
+        orch = self._bare_orchestrator()
+        orch.memory_manager.get_memories.return_value = {}
+        orch.memory_manager.get_history.return_value = []
+        orch.context_manager = MagicMock()
+        orch.context_manager.build_prompt_context.return_value = "prompt"
+        orch.screen_capture = MagicMock()
+        orch.ai_vision_provider = None
+        orch.action_manager = MagicMock()
+        orch.system_audio_listener = MagicMock()
+        orch.agent_core = AgentCore(build_default_registry(orch.action_manager, orch.memory_manager), orch.event_bus)
+        orch.ai_provider.chat.return_value = json.dumps({
+            "speech": "oi!", "animation": "HAPPY", "action": "Nenhuma", "action_param": ""
+        })
+        monkeypatch.setattr(threading, "Thread", _SyncThread)
+
+        orch.handle_user_message("oi, tudo bem?")
+
+        orch.ai_provider.chat.assert_called_once()
+        orch.scheduler.create.assert_not_called()
+
+
+class TestOnReminderFired:
+    def _bare_orchestrator(self):
+        orch = CompanionOrchestrator.__new__(CompanionOrchestrator)
+        orch.state_manager = MagicMock()
+        orch.memory_manager = MagicMock()
+        orch.tts = MagicMock()
+        orch.settings = FakeSettings()
+        return orch
+
+    def test_speaks_and_records_the_reminder(self, monkeypatch):
+        import threading
+        orch = self._bare_orchestrator()
+        monkeypatch.setattr(threading, "Thread", _SyncThread)
+
+        orch._on_reminder_fired("tirar o bolo")
+
+        orch.state_manager.set_state.assert_any_call("TALKING", reason="Reminder fired")
+        orch.memory_manager.record_turn.assert_called_once_with("", "Lembrete: tirar o bolo.")
+        orch.tts.speak.assert_called_once()
+        assert "tirar o bolo" in orch.tts.speak.call_args[0][0]
+
+
 class TestHandleUserMessageIsDirectInput:
     """FASE 15 — REGRA FUNDAMENTAL: content Silva only overheard (system
     audio) must never gain the same command authority as something the user
@@ -975,6 +1063,42 @@ class TestMaybeToggleNerdMode:
         orch._maybe_toggle_nerd_mode("ativa o modo nerd")
 
         assert received == [{"enabled": True}]
+
+
+class TestMaybeCreateReminder:
+    def _bare_orchestrator(self):
+        orch = CompanionOrchestrator.__new__(CompanionOrchestrator)
+        orch.scheduler = MagicMock()
+        return orch
+
+    def test_relative_reminder_creates_it_and_returns_confirmation(self):
+        orch = self._bare_orchestrator()
+
+        reply = orch._maybe_create_reminder("me lembra em 10 minutos de tirar o bolo")
+
+        assert reply is not None
+        assert "tirar o bolo" in reply
+        orch.scheduler.create.assert_called_once()
+        call_args = orch.scheduler.create.call_args[0]
+        assert call_args[0] == "tirar o bolo"
+        assert call_args[2] is None  # not recurring
+
+    def test_daily_reminder_mentions_recurrence_in_the_reply(self):
+        orch = self._bare_orchestrator()
+
+        reply = orch._maybe_create_reminder("me lembra todo dia às 9h de tomar água")
+
+        assert "todo dia" in reply
+        call_args = orch.scheduler.create.call_args[0]
+        assert call_args[2] == 86400.0
+
+    def test_unrelated_message_returns_none_and_does_not_create_anything(self):
+        orch = self._bare_orchestrator()
+
+        reply = orch._maybe_create_reminder("oi, tudo bem?")
+
+        assert reply is None
+        orch.scheduler.create.assert_not_called()
 
 
 class TestMaybeSpeakSpontaneously:

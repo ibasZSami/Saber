@@ -17,6 +17,7 @@ from src.core.event_bus import (
     APP_AUTO_RESOLVED, MEMORY_CREATED,
     NERD_MODE_TOGGLED, VISION_MONITORING_TOGGLED,
     TASK_COMPLETED, TASK_FAILED, ERROR_OCCURRED,
+    REMINDER_CREATED, REMINDER_FIRED,
 )
 
 MAX_ENTRIES = 200
@@ -64,6 +65,8 @@ class ActivityLog:
         self.event_bus.subscribe(TASK_COMPLETED, self._on_task_completed)
         self.event_bus.subscribe(TASK_FAILED, self._on_task_failed)
         self.event_bus.subscribe(ERROR_OCCURRED, self._on_error)
+        self.event_bus.subscribe(REMINDER_CREATED, self._on_reminder_created)
+        self.event_bus.subscribe(REMINDER_FIRED, self._on_reminder_fired)
 
     def _add(self, text: str):
         self._entries.append(ActivityEntry(timestamp=time.time(), text=text))
@@ -94,6 +97,12 @@ class ActivityLog:
 
     def _on_error(self, source, error):
         self._add(f"Ocorreu um erro em {source}.")
+
+    def _on_reminder_created(self, reminder_id, message, fire_at):
+        self._add(f'Agendou um lembrete: "{message}".')
+
+    def _on_reminder_fired(self, reminder_id, message):
+        self._add(f'Avisou um lembrete: "{message}".')
 
     def entries(self):
         return list(self._entries)

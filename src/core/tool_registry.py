@@ -1,3 +1,4 @@
+import time
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional
@@ -115,6 +116,12 @@ _TOOL_DEFS = [
         "description": "Inicia uma pesquisa real na web em segundo plano sobre um tópico e avisa quando terminar — não bloqueia a conversa.",
         "parameters": {"query": "string"},
     },
+    {
+        "name": "create_reminder",
+        "tier": PermissionTier.SAFE,
+        "description": "Agenda um lembrete/timer — anuncia a mensagem em voz alta quando o tempo passar.",
+        "parameters": {"message": "string", "minutes_from_now": "number"},
+    },
 ]
 
 
@@ -211,6 +218,22 @@ def _research_topic(background_task_manager, research_manager, action_param) -> 
     return True
 
 
+def _create_reminder(scheduler, action_param) -> bool:
+    if not isinstance(action_param, dict):
+        return False
+    message = action_param.get("message")
+    if not isinstance(message, str) or not message.strip():
+        return False
+    try:
+        minutes = float(action_param.get("minutes_from_now"))
+    except (TypeError, ValueError):
+        return False
+    if minutes <= 0:
+        return False
+    scheduler.create(message.strip(), time.time() + minutes * 60)
+    return True
+
+
 # Tool names with a real dispatch handler — observe_screen/translate_screen are
 # deliberately absent (see _TOOL_DEFS' comment above).
 _DISPATCH_BUILDERS = {
@@ -222,6 +245,7 @@ _DISPATCH_BUILDERS = {
     "forget_memory": lambda m: (lambda p: _forget_memory(m["memory_manager"], p)),
     "set_app_volume": lambda m: (lambda p: _set_app_volume(m["audio_mixer_manager"], p)),
     "research_topic": lambda m: (lambda p: _research_topic(m["background_task_manager"], m["research_manager"], p)),
+    "create_reminder": lambda m: (lambda p: _create_reminder(m["scheduler"], p)),
 }
 
 
@@ -231,6 +255,7 @@ def build_default_registry(
     audio_mixer_manager=None,
     background_task_manager=None,
     research_manager=None,
+    scheduler=None,
 ) -> ToolRegistry:
     """Registers every tool from _TOOL_DEFS, binding a real dispatch handler for
     the ones that have one. Each dispatch guard reproduces the original
@@ -243,7 +268,8 @@ def build_default_registry(
     background_task_manager/research_manager have no sensible zero-arg default
     (a real ResearchManager needs an AI provider) — if either is omitted,
     research_topic stays descriptive-only (no dispatch), same as
-    observe_screen/translate_screen."""
+    observe_screen/translate_screen. scheduler works the same way for
+    create_reminder — it needs a real Database-backed instance, no default."""
     if audio_mixer_manager is None:
         from src.desktop.audio_mixer import AudioMixerManager
         audio_mixer_manager = AudioMixerManager()
@@ -253,6 +279,7 @@ def build_default_registry(
         "audio_mixer_manager": audio_mixer_manager,
         "background_task_manager": background_task_manager,
         "research_manager": research_manager,
+        "scheduler": scheduler,
     }
     registry = ToolRegistry()
     for tool_def in _TOOL_DEFS:
@@ -261,7 +288,12 @@ def build_default_registry(
         research_deps_missing = name == "research_topic" and (
             background_task_manager is None or research_manager is None
         )
-        dispatch = build_dispatch(managers) if (build_dispatch and not research_deps_missing) else None
+        reminder_deps_missing = name == "create_reminder" and scheduler is None
+        dispatch = (
+            build_dispatch(managers)
+            if build_dispatch and not research_deps_missing and not reminder_deps_missing
+            else None
+        )
         registry.register(ToolSpec(
             name=name,
             tier=tool_def["tier"],

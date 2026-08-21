@@ -81,6 +81,18 @@ class TestOtherLoggedEvents:
         bus.emit("ERROR_OCCURRED", source="handle_user_message", error="boom")
         assert "handle_user_message" in log.entries()[-1].text
 
+    def test_reminder_created(self):
+        bus = _bus()
+        log = ActivityLog(bus)
+        bus.emit("REMINDER_CREATED", reminder_id=1, message="tirar o bolo", fire_at=123.0)
+        assert '"tirar o bolo"' in log.entries()[-1].text
+
+    def test_reminder_fired(self):
+        bus = _bus()
+        log = ActivityLog(bus)
+        bus.emit("REMINDER_FIRED", reminder_id=1, message="tirar o bolo")
+        assert '"tirar o bolo"' in log.entries()[-1].text
+
 
 class TestNoiseIsNotLogged:
     def test_memory_recalled_is_not_logged(self):

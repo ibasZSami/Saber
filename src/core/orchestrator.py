@@ -1,6 +1,7 @@
 import logging
 import threading
 import time
+from datetime import datetime
 from typing import Optional
 from PySide6.QtCore import QTimer, QMetaObject, Qt, Q_ARG
 
@@ -17,6 +18,9 @@ from src.core.event_bus import (
 from src.core.state_machine import StateMachine
 from src.core.silva_state import SilvaState
 from src.core.activity_log import ActivityLog
+from src.core.scheduler import Scheduler
+from src.core import reminder_parser
+from src.memory.database import Database
 from src.vision.continuous_vision import ContinuousVisionBuffer, VisionMode
 from src.core.tool_registry import build_default_registry
 from src.core.agent_core import AgentCore
@@ -93,6 +97,9 @@ NERD_SPONTANEOUS_TALK_IDLE_GAP_S = 20
 # exchange or chatter constantly.
 SPONTANEOUS_TALK_CHECK_INTERVAL_S = 75
 SPONTANEOUS_TALK_IDLE_GAP_S = 45
+
+# FASE 12 — how often due reminders are checked.
+SCHEDULER_CHECK_INTERVAL_S = 5
 
 # How many spontaneous-talk checks a headline gets offered to the model before
 # giving up on it. A single shot meant most headlines were wasted on a turn
@@ -239,11 +246,17 @@ class CompanionOrchestrator:
         self.event_bus.subscribe(TASK_COMPLETED, self._on_task_completed)
         self.event_bus.subscribe(TASK_FAILED, self._on_task_failed)
 
+        # Reminders/timers (FASE 12) — persisted via their own Database()
+        # instance (same sqlite file MemoryManager uses; sqlite handles the
+        # separate-connection sharing fine for this access pattern), checked
+        # on a timer below once the rest of __init__ has run.
+        self.scheduler = Scheduler(Database(), self.event_bus, on_fire=self._on_reminder_fired)
+
         # Tool dispatch (SAFE/CONFIRM/DANGEROUS tiers) — see src/core/tool_registry.py
         # and src/core/agent_core.py for the FASE 2 Agent Core extraction.
         self.tool_registry = build_default_registry(
             self.action_manager, self.memory_manager, self.audio_mixer_manager,
-            self.background_task_manager, self.research_manager,
+            self.background_task_manager, self.research_manager, self.scheduler,
         )
         self.agent_core = AgentCore(
             self.tool_registry, self.event_bus, confirm_fn=self.confirm_fn, policy_manager=self.policy_manager,
@@ -292,6 +305,13 @@ class CompanionOrchestrator:
         self.spontaneous_talk_timer = QTimer()
         self.spontaneous_talk_timer.timeout.connect(self._maybe_speak_spontaneously)
         self.spontaneous_talk_timer.start(NERD_SPONTANEOUS_TALK_CHECK_INTERVAL_S * 1000)
+
+        # Reminder check — deliberately more frequent than the spontaneous
+        # talk timers above since a reminder is a real commitment ("me lembra
+        # em 1 minuto"), not idle chatter; a few seconds of slack is fine.
+        self.scheduler_timer = QTimer()
+        self.scheduler_timer.timeout.connect(self.scheduler.check_due)
+        self.scheduler_timer.start(SCHEDULER_CHECK_INTERVAL_S * 1000)
 
         # Read-only "what's happening right now" facade over everything
         # constructed above — see src/core/silva_state.py. Built last, once
@@ -492,6 +512,30 @@ class CompanionOrchestrator:
             return NERD_MODE_ENABLED_REPLY
         return None
 
+    def _maybe_create_reminder(self, user_text: str) -> Optional[str]:
+        """Same deterministic short-circuit pattern as _maybe_toggle_nerd_mode:
+        a real reminder request ("me lembra em 10 minutos de X") gets an
+        instant, exact confirmation instead of an AI call that might phrase
+        the time back wrong. See src/core/reminder_parser.py."""
+        parsed = reminder_parser.parse(user_text)
+        if parsed is None:
+            return None
+        self.scheduler.create(parsed.message, parsed.fire_at, parsed.recurring_seconds)
+        when = datetime.fromtimestamp(parsed.fire_at).strftime("%H:%M")
+        if parsed.recurring_seconds:
+            return f'Combinado, vou te lembrar todo dia às {when}: "{parsed.message}".'
+        return f'Combinado, te aviso às {when}: "{parsed.message}".'
+
+    def _on_reminder_fired(self, message: str):
+        """Scheduler's on_fire callback — runs on the GUI thread (the
+        scheduler_timer QTimer calls check_due directly), so speaking here is
+        the same as any other direct call to _speak_async elsewhere in this
+        class."""
+        speech = f"Lembrete: {message}."
+        self.state_manager.set_state("TALKING", reason="Reminder fired")
+        self.memory_manager.record_turn("", speech)
+        self._speak_async(speech)
+
     def _maybe_speak_spontaneously(self):
         if not self.spontaneous_talk_enabled:
             return
@@ -686,6 +730,14 @@ class CompanionOrchestrator:
                         self._speak_async(nerd_reply)
                         if on_response:
                             on_response(nerd_reply)
+                        return
+
+                    reminder_reply = self._maybe_create_reminder(user_text)
+                    if reminder_reply is not None:
+                        self.memory_manager.record_turn(user_text, reminder_reply)
+                        self._speak_async(reminder_reply)
+                        if on_response:
+                            on_response(reminder_reply)
                         return
 
                     self._maybe_activate_vision_command(user_text)
