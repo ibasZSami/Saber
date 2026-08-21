@@ -1,4 +1,4 @@
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from src.config.settings import Settings
 from src.core.activity_log import ActivityLog
@@ -247,6 +247,94 @@ class TestAgentTab:
         settings = _settings(tmp_path, allowlist={})
         window = SettingsWindow(settings, terminal_tool_manager=None)
         window._save()  # should not raise
+
+
+def _snapshot(**overrides):
+    base = {
+        "desktop": {"active_window": None, "category": None, "is_game": False, "idle_seconds": 0},
+        "vision": {"monitoring_enabled": False, "private_mode": True},
+        "voice": {"listening": False, "hands_free_enabled": False, "system_audio_listening": False},
+        "memory": {"saved_keys": [], "saved_count": 0},
+    }
+    base.update(overrides)
+    return base
+
+
+class TestPrivacyTab:
+    def test_without_silva_state_shows_a_fallback_message(self, tmp_path):
+        settings = _settings(tmp_path, allowlist={})
+        window = SettingsWindow(settings, silva_state=None)
+        assert "indisponível" in window.privacy_output.toPlainText()
+
+    def test_shows_the_formatted_summary(self, tmp_path):
+        settings = _settings(tmp_path, allowlist={})
+        silva_state = MagicMock()
+        silva_state.snapshot.return_value = _snapshot(
+            memory={"saved_keys": ["cor favorita"], "saved_count": 1}
+        )
+        window = SettingsWindow(settings, silva_state=silva_state)
+
+        text = window.privacy_output.toPlainText()
+
+        assert "O QUE A SILVA VÊ" in text
+        assert "cor favorita" in text
+
+    def test_memory_list_is_populated_from_the_snapshot(self, tmp_path):
+        settings = _settings(tmp_path, allowlist={})
+        silva_state = MagicMock()
+        silva_state.snapshot.return_value = _snapshot(
+            memory={"saved_keys": ["cor favorita", "cidade natal"], "saved_count": 2}
+        )
+        window = SettingsWindow(settings, silva_state=silva_state)
+
+        assert window.memory_list.count() == 2
+
+    def test_forget_selected_memory_calls_memory_manager(self, tmp_path):
+        settings = _settings(tmp_path, allowlist={})
+        silva_state = MagicMock()
+        silva_state.snapshot.return_value = _snapshot(
+            memory={"saved_keys": ["cor favorita"], "saved_count": 1}
+        )
+        memory_manager = MagicMock()
+        window = SettingsWindow(settings, silva_state=silva_state, memory_manager=memory_manager)
+        window.memory_list.setCurrentRow(0)
+
+        window._forget_selected_memory()
+
+        memory_manager.forget.assert_called_once_with("cor favorita")
+
+    def test_forget_without_selection_does_not_raise(self, tmp_path):
+        settings = _settings(tmp_path, allowlist={})
+        silva_state = MagicMock()
+        silva_state.snapshot.return_value = _snapshot()
+        memory_manager = MagicMock()
+        window = SettingsWindow(settings, silva_state=silva_state, memory_manager=memory_manager)
+
+        window._forget_selected_memory()  # should not raise
+
+        memory_manager.forget.assert_not_called()
+
+    def test_forget_without_memory_manager_does_not_raise(self, tmp_path):
+        settings = _settings(tmp_path, allowlist={})
+        silva_state = MagicMock()
+        silva_state.snapshot.return_value = _snapshot(
+            memory={"saved_keys": ["cor favorita"], "saved_count": 1}
+        )
+        window = SettingsWindow(settings, silva_state=silva_state, memory_manager=None)
+        window.memory_list.setCurrentRow(0)
+
+        window._forget_selected_memory()  # should not raise
+
+    def test_refresh_button_pulls_a_fresh_snapshot(self, tmp_path):
+        settings = _settings(tmp_path, allowlist={})
+        silva_state = MagicMock()
+        silva_state.snapshot.return_value = _snapshot()
+        window = SettingsWindow(settings, silva_state=silva_state)
+        assert silva_state.snapshot.call_count == 1
+
+        window._refresh_privacy_summary()
+
+        assert silva_state.snapshot.call_count == 2
 
 
 class TestActivityTab:

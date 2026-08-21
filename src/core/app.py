@@ -76,7 +76,7 @@ def _start_main(app, settings):
     # Settings Window
     settings_window = SettingsWindow(
         settings, orchestrator.permission_manager, orchestrator.policy_manager, orchestrator.activity_log,
-        orchestrator.terminal_tool_manager,
+        orchestrator.terminal_tool_manager, orchestrator.silva_state, orchestrator.memory_manager,
     )
 
     # Connect signals

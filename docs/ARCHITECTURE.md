@@ -243,6 +243,12 @@ de ser espremido numa mudança que já tinha outro foco.
   computa um snapshot de "o que está acontecendo agora" a partir dos dados
   já mantidos por cada subsistema — não é um segundo armazenamento de
   estado, só uma consulta unificada.
+- **Privacy Center** (`src/core/privacy_summary.py`, aba "Privacidade"):
+  `format_privacy_summary()` transforma o snapshot do `SilvaState` num texto
+  legível — visão, Modo Tradução, microfone, áudio do sistema, memórias
+  salvas — reaproveitando o facade acima em vez de rastrear esse estado de
+  novo. A aba também deixa esquecer uma memória direto ali
+  (`memory_manager.forget()`), não é só leitura.
 
 ## Testes
 

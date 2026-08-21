@@ -7,6 +7,7 @@ from src.config.settings import Settings
 from src.core import autostart
 from src.core.diagnostics import format_report, run_diagnostics
 from src.core.activity_log import format_activity_log
+from src.core.privacy_summary import format_privacy_summary
 
 # (display label, edge_tts voice name)
 VOICE_OPTIONS = [
@@ -24,11 +25,18 @@ def _pitch_str_to_hz(pitch_str: str) -> int:
 class SettingsWindow(QWidget):
     def __init__(
         self, settings: Settings, permission_manager=None, policy_manager=None, activity_log=None,
-        terminal_tool_manager=None,
+        terminal_tool_manager=None, silva_state=None, memory_manager=None,
     ):
         super().__init__()
         self.settings = settings
         self.activity_log = activity_log
+        # Privacy Center tab — silva_state is the read-only "what's
+        # happening right now" facade (src/core/silva_state.py), already
+        # aggregating vision/voice/memory state from every subsystem;
+        # memory_manager is only needed here to let "Esquecer" actually
+        # forget a memory from the UI, not just display it.
+        self.silva_state = silva_state
+        self.memory_manager = memory_manager
         # Lets a saved terminal allowlist change take effect immediately, same
         # reasoning as permission_manager below for the app allowlist. Whether
         # mouse/keyboard or terminal tools are enabled AT ALL (the master
@@ -233,7 +241,35 @@ class SettingsWindow(QWidget):
         agent_layout.addWidget(terminal_remove_btn)
         tabs.addTab(agent_tab, "Agente")
 
-        # Tab 7: Diagnóstico — checagem local, offline, do que a Silva depende
+        # Tab 7: Privacidade — "o que a Silva vê/ouve/lembra" num só lugar,
+        # em vez de espalhado entre as abas Visão/Voz e a aba Atividade.
+        # Alimentado por SilvaState, o mesmo facade somente-leitura que já
+        # agrega esse estado de cada subsistema — nada novo sendo rastreado.
+        privacy_tab = QWidget()
+        privacy_layout = QVBoxLayout(privacy_tab)
+        privacy_layout.addWidget(QLabel("O que a Silva consegue ver, ouvir e lembrar agora."))
+        self.privacy_output = QTextEdit()
+        self.privacy_output.setReadOnly(True)
+        self.privacy_output.setFontFamily("Consolas")
+        privacy_layout.addWidget(self.privacy_output)
+
+        privacy_btn_row = QHBoxLayout()
+        refresh_privacy_btn = QPushButton("Atualizar")
+        refresh_privacy_btn.clicked.connect(self._refresh_privacy_summary)
+        privacy_btn_row.addWidget(refresh_privacy_btn)
+        privacy_layout.addLayout(privacy_btn_row)
+
+        privacy_layout.addWidget(QLabel("Memórias salvas — selecione uma pra esquecer:"))
+        self.memory_list = QListWidget()
+        privacy_layout.addWidget(self.memory_list)
+        forget_memory_btn = QPushButton("Esquecer selecionada")
+        forget_memory_btn.clicked.connect(self._forget_selected_memory)
+        privacy_layout.addWidget(forget_memory_btn)
+
+        tabs.addTab(privacy_tab, "Privacidade")
+        self._refresh_privacy_summary()
+
+        # Tab 8: Diagnóstico — checagem local, offline, do que a Silva depende
         # (Python, Qt, áudio, Whisper, Tesseract, API, assets, config, allowlist,
         # autostart). Nunca inclui a chave de API de verdade, só se ela existe.
         diag_tab = QWidget()
@@ -257,7 +293,7 @@ class SettingsWindow(QWidget):
         diag_layout.addLayout(diag_btn_row)
         tabs.addTab(diag_tab, "Diagnóstico")
 
-        # Tab 8: Atividade — histórico amigável do que a Silva fez (abriu app,
+        # Tab 9: Atividade — histórico amigável do que a Silva fez (abriu app,
         # guardou memória, concluiu pesquisa...), sem exigir olhar o log de
         # depuração. Só existe em memória (não sobrevive a reiniciar o app).
         activity_tab = QWidget()
@@ -381,6 +417,23 @@ class SettingsWindow(QWidget):
             self.terminal_tool_manager.allowlist.clear()
             self.terminal_tool_manager.allowlist.update(self.terminal_allowlist)
         self.close()
+
+    def _refresh_privacy_summary(self):
+        if self.silva_state is None:
+            self.privacy_output.setPlainText("Resumo de privacidade indisponível.")
+            return
+        snapshot = self.silva_state.snapshot()
+        self.privacy_output.setPlainText(format_privacy_summary(snapshot))
+        self.memory_list.clear()
+        for key in snapshot.get("memory", {}).get("saved_keys", []):
+            self.memory_list.addItem(key)
+
+    def _forget_selected_memory(self):
+        item = self.memory_list.currentItem()
+        if not item or self.memory_manager is None:
+            return
+        self.memory_manager.forget(item.text())
+        self._refresh_privacy_summary()
 
     def _refresh_activity_log(self):
         entries = self.activity_log.entries() if self.activity_log else []

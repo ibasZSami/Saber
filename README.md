@@ -138,6 +138,9 @@ qualquer momento dá pra cancelar dizendo **"cancela a tarefa"**. Ver `docs/ARCH
 - **Diagnóstico local** (Configurações → Diagnóstico): checa localmente, sem rede, se Python, Qt,
   áudio, Whisper, Tesseract, chave de API, sprites, configuração, allowlist e autostart estão
   funcionando — com botão pra exportar o relatório em texto (nunca inclui a chave de verdade).
+- **Privacy Center** (Configurações → Privacidade): o que a Silva vê, ouve e lembra agora, num só
+  lugar — visão de tela, Modo Tradução, microfone, áudio do sistema, e a lista de memórias
+  salvas com botão pra esquecer qualquer uma direto ali.
 
 ---
 
@@ -197,7 +200,7 @@ voz e permissões iniciais.
 pytest tests/ --cov=src --cov-report=term-missing
 ```
 
-900 testes (91% de cobertura) cobrindo orquestrador, ferramentas/permissões, Agent Engine (task
+919 testes (91% de cobertura) cobrindo orquestrador, ferramentas/permissões, Agent Engine (task
 loop), mouse/teclado, terminal controlado, OCR estruturado, Translation Engine, overlay, Modo
 Tradução, voz, visão contínua, memória, lembretes/scheduler, notícias, mixer de som, autostart,
 pesquisa em segundo plano, Modo Nerd, tela de Aplicativos, sprites/animação, estado
@@ -213,12 +216,11 @@ Documentação técnica (arquitetura, segurança, padrões de teste) em [`docs/`
 Silva está evoluindo de "conjunto de features" pra uma arquitetura de **Local AI Desktop Agent**
 (Agent Core, Tool Registry, Scheduler, Visão Contínua, Emotion Engine, Agent Engine com loop
 multi-passo (com gatilho de chat), controle de mouse/teclado, terminal controlado, Modo Tradução
-com overlay e Memória em camadas com filtro de relevância já feitos acima). O que falta, em ordem:
+com overlay, Memória em camadas com filtro de relevância e Privacy Center já feitos acima). O que
+falta, em ordem:
 
 - **RAG local (documentos/código)**: mencionado como preparação futura na Memória em camadas —
   precisa de indexação/chunking/busca próprios, deliberadamente deixado fora por enquanto.
-- **Privacy Center**: tela dedicada mostrando o que a Silva vê/ouve/lembra num só lugar (hoje
-  espalhado entre Configurações → Visão/Voz e a aba Atividade).
 - **Modos do Silva**: perfis prontos (Silencioso/Trabalho/Companhia/Foco/Privacidade/Jogo) que
   ajustam várias configurações de uma vez, em vez de mexer em cada toggle separado.
 - **Attention Budget**: controle mais inteligente da frequência de fala espontânea, além dos
