@@ -20,6 +20,8 @@ from src.core.silva_state import SilvaState
 from src.core.activity_log import ActivityLog
 from src.core.scheduler import Scheduler
 from src.core import reminder_parser
+from src.core.task_manager import TaskManager
+from src.core.agent_engine import AgentEngine
 from src.memory.database import Database
 from src.vision.continuous_vision import ContinuousVisionBuffer, VisionMode
 from src.core.tool_registry import build_default_registry
@@ -260,6 +262,16 @@ class CompanionOrchestrator:
         )
         self.agent_core = AgentCore(
             self.tool_registry, self.event_bus, confirm_fn=self.confirm_fn, policy_manager=self.policy_manager,
+        )
+
+        # Agent Engine (FASE 2) — multi-step goal execution (OBSERVAR/DECIDIR/
+        # AGIR/VERIFICAR/REPETIR), reusing this same agent_core so a task-loop
+        # step still goes through the real CONFIRM/allowlist flow. Not yet
+        # wired to a chat trigger phrase — that's a deliberate FASE 3 decision
+        # (once more tools exist to actually act on), see docs/ARCHITECTURE.md.
+        self.task_manager = TaskManager(self.event_bus)
+        self.agent_engine = AgentEngine(
+            self.ai_complex_provider or self.ai_provider, self.agent_core, self.task_manager, self.event_bus,
         )
 
         # Initialize TTS & Voice Input

@@ -74,6 +74,36 @@ Ferramentas hoje: `open_application`, `close_application`, `open_url`,
 `translate_screen` (descritivas — disparadas por palavra-chave, não por
 despacho de ferramenta).
 
+## Agent Engine — execução de objetivos em múltiplos passos
+
+`src/core/agent_engine.py` + `src/core/task_manager.py` (em construção,
+FASE 2 do plano de evolução — mouse/teclado/terminal/browser ainda não
+existem como ferramentas, isso é FASE 3) implementam um loop real:
+
+```
+OBSERVAR (histórico de passos) → DECIDIR (1 chamada à IA) → AGIR (AgentCore)
+→ VERIFICAR (observação) → REPETIR, até done=true ou um limite estourar
+```
+
+- **`TaskManager`**: dono do ciclo de vida de uma `Task` (PENDING → RUNNING →
+  COMPLETED/FAILED/CANCELLED, com PAUSED opcional no meio) — histórico de
+  passos, e três limites de segurança checados a cada passo: número máximo
+  de passos, timeout, e detecção de repetição (a mesma ação+parâmetro N
+  vezes seguidas corta o loop). Não executa nada sozinho.
+- **`AgentEngine`**: o loop em si, rodando numa thread de fundo. Usa um
+  prompt de sistema **separado** do conversacional
+  (`build_agent_system_prompt`, em `src/ai/prompts.py`) e um parser próprio
+  (`src/ai/agent_response.py`) — o schema de cada passo não tem `"speech"`,
+  só `thought`/`done`/`result`/`action`/`action_param`. Despacha a ação
+  escolhida através do **mesmo** `AgentCore` do chat normal — uma ferramenta
+  CONFIRM dentro de uma tarefa multi-passo ainda pede confirmação de
+  verdade, sem atalho.
+
+Ainda não conectado a um comando de chat (`"faça X"` não dispara isso
+ainda) — é intencional: construído e testado primeiro, o gatilho de
+invocação entra junto da FASE 3, quando existem ferramentas de fato para
+o loop usar além do que o chat normal já cobre.
+
 ## Visão (`src/vision/`)
 
 - `ScreenCapture`: uma instância `mss.mss()` **por thread** (`threading.local`)

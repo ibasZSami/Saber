@@ -80,9 +80,17 @@ class SilvaState:
             running_count = len(running)
         scheduler = getattr(self._orch, "scheduler", None)
         pending_reminders = scheduler.list_pending() if scheduler is not None else []
+        task_manager = getattr(self._orch, "task_manager", None)
+        if task_manager is None:
+            agent_tasks_active_count = 0
+        else:
+            agent_tasks_active_count = sum(
+                1 for t in task_manager.list_tasks() if t.status in ("PENDING", "RUNNING", "PAUSED")
+            )
         return {
             "running": running, "running_count": running_count,
             "pending_reminders_count": len(pending_reminders),
+            "agent_tasks_active_count": agent_tasks_active_count,
         }
 
     def _memory(self) -> dict:

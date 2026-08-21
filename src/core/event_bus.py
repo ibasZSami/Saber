@@ -140,3 +140,19 @@ PERMISSION_DENIED = "PERMISSION_DENIED"
 # (CREATED only) fire_at: float (unix timestamp).
 REMINDER_CREATED = "REMINDER_CREATED"
 REMINDER_FIRED = "REMINDER_FIRED"
+
+# Agent Engine task loop (see src/core/agent_engine.py, src/core/task_manager.py).
+# All kwargs include task_id: str. STARTED also has goal: str; STEP has
+# action, action_param, observation, step_number; COMPLETED has result: str;
+# FAILED has error: str. Deliberately separate names from
+# TASK_STARTED/COMPLETED/FAILED above (BackgroundTaskManager's single-shot
+# fire-and-forget work) — a multi-step agent task is a different lifecycle
+# (pausable, has a step history) and conflating the two event streams would
+# make either one impossible to listen to cleanly on its own.
+TASK_LOOP_STARTED = "TASK_LOOP_STARTED"
+TASK_LOOP_STEP = "TASK_LOOP_STEP"
+TASK_LOOP_PAUSED = "TASK_LOOP_PAUSED"
+TASK_LOOP_RESUMED = "TASK_LOOP_RESUMED"
+TASK_LOOP_CANCELLED = "TASK_LOOP_CANCELLED"
+TASK_LOOP_COMPLETED = "TASK_LOOP_COMPLETED"
+TASK_LOOP_FAILED = "TASK_LOOP_FAILED"

@@ -179,7 +179,25 @@ class TestTasksSection:
     def test_missing_background_task_manager_yields_empty_not_an_exception(self):
         orch = _FakeOrchestrator(background_task_manager=None)
         snapshot = SilvaState(orch).snapshot()
-        assert snapshot["tasks"] == {"running": [], "running_count": 0, "pending_reminders_count": 0}
+        assert snapshot["tasks"] == {
+            "running": [], "running_count": 0, "pending_reminders_count": 0, "agent_tasks_active_count": 0,
+        }
+
+    def test_reflects_active_agent_tasks_count(self):
+        from src.core.task_manager import TaskManager
+        orch = _FakeOrchestrator()
+        orch.task_manager = TaskManager(MagicMock())
+        orch.task_manager.create_task("x")
+        running = orch.task_manager.create_task("y")
+        orch.task_manager.start(running.id)
+        orch.task_manager.complete(running.id, "done")
+        snapshot = SilvaState(orch).snapshot()
+        assert snapshot["tasks"]["agent_tasks_active_count"] == 1
+
+    def test_missing_task_manager_yields_zero_not_an_exception(self):
+        orch = _FakeOrchestrator(task_manager=None)
+        snapshot = SilvaState(orch).snapshot()
+        assert snapshot["tasks"]["agent_tasks_active_count"] == 0
 
     def test_reflects_pending_reminders_count(self):
         orch = _FakeOrchestrator()
