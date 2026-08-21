@@ -1,6 +1,5 @@
 from src.memory.database import Database
 from src.memory.manager import MemoryManager
-from src.core.event_bus import EventBus
 
 
 def _capture(event_bus, event_type):

@@ -1,4 +1,3 @@
-import logging
 from src.desktop.window_manager import WindowManager
 
 GAME_KEYWORDS = ["game", "steam", "play", "unreal", "unity", "minecraft", "roblox", "palworld", "league", "valorant"]

@@ -14,7 +14,6 @@ ASSETS_DIR = os.path.join(os.path.dirname(__file__), "..", "extracted_assets", "
 from src.character.sprite_loader import SpriteLoader
 from src.character.animation_manager import AnimationManager
 from src.core.state_machine import StateMachine
-from src.memory.manager import MemoryManager
 from src.desktop.permissions import PermissionManager
 from src.vision.change_detector import ScreenChangeDetector
 

@@ -1,5 +1,4 @@
 import logging
-from PIL import Image
 from src.vision.screen_capture import ScreenCapture
 from src.vision.ocr import OCRProvider, TesseractOCRProvider
 

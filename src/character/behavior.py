@@ -1,5 +1,4 @@
 import random
-import logging
 from PySide6.QtCore import QTimer
 from src.character.state_manager import CharacterStateManager
 

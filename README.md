@@ -1,5 +1,7 @@
 # 🔮 Silva
 
+[![CI](https://github.com/ibasZSami/Saber/actions/workflows/ci.yml/badge.svg)](https://github.com/ibasZSami/Saber/actions/workflows/ci.yml)
+
 **Silva** é um companheiro virtual de desktop com IA: um gato-mago em pixel art que acompanha
 o usuário no Windows, vê a tela sob demanda, ouve e fala, lembra de coisas, comenta sozinho de
 vez em quando (inclusive notícias reais), e tem controle real e permissionado sobre o sistema
@@ -141,9 +143,10 @@ voz e permissões iniciais.
 pytest tests/ --cov=src --cov-report=term-missing
 ```
 
-373 testes cobrindo orquestrador, ferramentas/permissões, voz, visão, memória, notícias,
+575 testes cobrindo orquestrador, ferramentas/permissões, voz, visão, memória, notícias,
 mixer de som, autostart, pesquisa em segundo plano, Modo Nerd, tela de Aplicativos, sprites/
-animação e configuração.
+animação, configuração, EventBus, confirmação de permissão e segurança dedicada. Roda
+automaticamente a cada push/PR (ver badge no topo).
 
 ---
 
@@ -163,12 +166,7 @@ Silva está evoluindo de "conjunto de features" pra uma arquitetura de **Local A
   sistema; emoção e estado funcional (pensando/falando) ainda dividem o mesmo campo de animação.
 - **Scheduler**: nenhum conceito de lembrete/timer/tarefa recorrente existe ainda
   ("me lembra em 30 minutos", "às 18h me avisa").
-- **Confirmação real pro tier CONFIRM**: hoje ações CONFIRM (abrir/fechar app, ajustar volume)
-  executam e só sinalizam num evento — falta um diálogo de "permitir uma vez / sempre / negar".
-- **Testes de segurança dedicados**: bypass de permissão, parâmetros inválidos, path traversal —
-  hoje a cobertura de segurança é indireta via testes de allowlist/tiers.
-- **Documentação e CI**: sem `docs/` detalhado (arquitetura, segurança, cada subsistema) nem
-  GitHub Actions (lint/testes automáticos a cada push).
+- **Documentação**: sem `docs/` detalhado (arquitetura, segurança, cada subsistema) ainda.
 - **Plugins**: nenhuma estrutura de plugin existe ainda — planejado como interface simples
   (`plugins/discord/`, `plugins/spotify/`, etc.), não uma prioridade imediata.
 - **Empacotamento**: hoje roda só via `install.bat`/`run.bat` + Python — gerar um instalador

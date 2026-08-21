@@ -1,4 +1,3 @@
-import logging
 from src.core.state_machine import StateMachine
 from src.core.event_bus import CHARACTER_STATE_CHANGED
 from src.character.animation_manager import AnimationManager

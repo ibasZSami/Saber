@@ -1,7 +1,6 @@
 import sqlite3
 import os
-import logging
-from typing import List, Dict, Any
+from typing import List, Dict
 
 class Database:
     def __init__(self, db_path: str = r"data\memory\memory.db"):

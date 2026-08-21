@@ -1,6 +1,5 @@
-import sys
 from PySide6.QtWidgets import (
-    QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QLineEdit, QComboBox, QCheckBox, QStackedWidget, QGroupBox, QFormLayout
 )
 from PySide6.QtCore import Qt, Signal

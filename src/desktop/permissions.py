@@ -1,5 +1,4 @@
-import logging
-from typing import Dict, Any
+from typing import Dict
 
 class PermissionManager:
     def __init__(self, allowlist: Dict[str, str] = None):

@@ -1,10 +1,8 @@
 import html
-import sys
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTextEdit, QLineEdit, QPushButton, QLabel
 )
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QIcon
 
 CHAT_STYLE = """
 QWidget {
@@ -94,7 +92,7 @@ class ChatWindow(QWidget):
         # unaffected, Qt decides per-emit based on the calling thread.
         self._append_message_requested.connect(self._append_message, Qt.AutoConnection)
 
-        self.append_message(self.character_name, f"Oi! Estou acompanhando você. Como posso ajudar?")
+        self.append_message(self.character_name, "Oi! Estou acompanhando você. Como posso ajudar?")
 
     def append_message(self, sender: str, text: str):
         self._append_message_requested.emit(sender, text)

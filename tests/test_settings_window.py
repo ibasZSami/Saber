@@ -1,4 +1,4 @@
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from src.config.settings import Settings
 from src.desktop.permission_policy import PermissionPolicyManager, PolicyDecision

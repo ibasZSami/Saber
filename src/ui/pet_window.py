@@ -1,8 +1,7 @@
 import logging
-import sys
-from PySide6.QtWidgets import QWidget, QLabel, QVBoxLayout, QMenu, QApplication
+from PySide6.QtWidgets import QWidget, QLabel, QVBoxLayout, QApplication
 from PySide6.QtCore import Qt, QPoint
-from PySide6.QtGui import QPixmap, QMouseEvent, QContextMenuEvent
+from PySide6.QtGui import QMouseEvent
 
 from src.character.animation_manager import AnimationManager
 from src.character.state_manager import CharacterStateManager

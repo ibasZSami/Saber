@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  lint:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install ruff
+        run: pip install ruff
+      # Error-only selection (syntax errors, undefined names, unused
+      # imports/vars) — not a style pass. This codebase has no prior lint
+      # history/config, so a full style ruleset would be noise unrelated to
+      # correctness; this catches real bugs without demanding a repo-wide
+      # style rewrite first.
+      - name: Lint (errors only)
+        run: ruff check --select E9,F src/ tests/ main.py
+
+  test:
+    runs-on: windows-latest
+    env:
+      # Tests never need a real visible window — running Qt "offscreen"
+      # avoids any dependency on the runner having an interactive desktop
+      # session, verified locally to produce identical results.
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Run tests
+        run: pytest tests/ --cov=src --cov-report=term-missing

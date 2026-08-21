@@ -5,7 +5,7 @@ but still a plaintext file people back up/share) and must never leak into a
 spoken/displayed error message when a provider call fails."""
 
 import json
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from src.config.settings import Settings
 
