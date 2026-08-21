@@ -1,10 +1,11 @@
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTabWidget, QFormLayout, QLineEdit, QComboBox, QCheckBox,
-    QPushButton, QLabel, QSpinBox, QListWidget, QListWidgetItem, QFileDialog, QMessageBox,
+    QPushButton, QLabel, QSpinBox, QListWidget, QListWidgetItem, QFileDialog, QMessageBox, QTextEdit,
 )
 from src.config.settings import Settings
 from src.core import autostart
+from src.core.diagnostics import format_report, run_diagnostics
 
 # (display label, edge_tts voice name)
 VOICE_OPTIONS = [
@@ -173,6 +174,30 @@ class SettingsWindow(QWidget):
         apps_layout.addWidget(remove_btn)
         tabs.addTab(apps_tab, "Aplicativos")
 
+        # Tab 6: Diagnóstico — checagem local, offline, do que a Silva depende
+        # (Python, Qt, áudio, Whisper, Tesseract, API, assets, config, allowlist,
+        # autostart). Nunca inclui a chave de API de verdade, só se ela existe.
+        diag_tab = QWidget()
+        diag_layout = QVBoxLayout(diag_tab)
+        diag_layout.addWidget(QLabel(
+            "Verifica localmente se tudo que a Silva depende está funcionando —\n"
+            "não envia nada pela rede."
+        ))
+        self.diagnostics_output = QTextEdit()
+        self.diagnostics_output.setReadOnly(True)
+        self.diagnostics_output.setFontFamily("Consolas")
+        diag_layout.addWidget(self.diagnostics_output)
+
+        diag_btn_row = QHBoxLayout()
+        run_diag_btn = QPushButton("Rodar diagnóstico")
+        run_diag_btn.clicked.connect(self._run_diagnostics)
+        export_diag_btn = QPushButton("Exportar relatório...")
+        export_diag_btn.clicked.connect(self._export_diagnostics)
+        diag_btn_row.addWidget(run_diag_btn)
+        diag_btn_row.addWidget(export_diag_btn)
+        diag_layout.addLayout(diag_btn_row)
+        tabs.addTab(diag_tab, "Diagnóstico")
+
         layout.addWidget(tabs)
 
         save_btn = QPushButton("Salvar Configurações")
@@ -244,3 +269,19 @@ class SettingsWindow(QWidget):
             self.permission_manager.allowlist.clear()
             self.permission_manager.allowlist.update(self.allowlist)
         self.close()
+
+    def _run_diagnostics(self):
+        checks = run_diagnostics(self.settings)
+        self.diagnostics_output.setPlainText(format_report(checks))
+
+    def _export_diagnostics(self):
+        if not self.diagnostics_output.toPlainText().strip():
+            self._run_diagnostics()
+        path, _ = QFileDialog.getSaveFileName(self, "Exportar diagnóstico", "silva_diagnostico.txt", "Texto (*.txt)")
+        if not path:
+            return
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(self.diagnostics_output.toPlainText())
+        except OSError as e:
+            QMessageBox.warning(self, "Diagnóstico", f"Não deu pra salvar o arquivo: {e}")

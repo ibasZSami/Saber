@@ -121,3 +121,45 @@ class TestSaveSyncsAllowlist:
         window = SettingsWindow(settings, permission_manager=None)
 
         window._save()  # should not raise
+
+
+class TestDiagnosticsTab:
+    def test_run_diagnostics_populates_the_output_box(self, tmp_path):
+        settings = _settings(tmp_path, allowlist={"notepad": "notepad.exe"})
+        window = SettingsWindow(settings)
+
+        window._run_diagnostics()
+
+        text = window.diagnostics_output.toPlainText()
+        assert "SILVA DIAGNOSTICS" in text
+        assert "Python" in text
+
+    def test_export_writes_the_report_to_the_chosen_file(self, tmp_path):
+        settings = _settings(tmp_path, allowlist={"notepad": "notepad.exe"})
+        window = SettingsWindow(settings)
+        window._run_diagnostics()
+        out_file = tmp_path / "report.txt"
+
+        with patch("src.ui.settings_window.QFileDialog.getSaveFileName", return_value=(str(out_file), "")):
+            window._export_diagnostics()
+
+        assert out_file.exists()
+        assert "SILVA DIAGNOSTICS" in out_file.read_text(encoding="utf-8")
+
+    def test_export_cancelled_dialog_does_not_write_anything(self, tmp_path):
+        settings = _settings(tmp_path, allowlist={"notepad": "notepad.exe"})
+        window = SettingsWindow(settings)
+        window._run_diagnostics()
+
+        with patch("src.ui.settings_window.QFileDialog.getSaveFileName", return_value=("", "")):
+            window._export_diagnostics()  # should not raise, nothing to assert on disk
+
+    def test_export_without_running_first_runs_diagnostics_automatically(self, tmp_path):
+        settings = _settings(tmp_path, allowlist={"notepad": "notepad.exe"})
+        window = SettingsWindow(settings)  # diagnostics never run yet
+        out_file = tmp_path / "report.txt"
+
+        with patch("src.ui.settings_window.QFileDialog.getSaveFileName", return_value=(str(out_file), "")):
+            window._export_diagnostics()
+
+        assert "SILVA DIAGNOSTICS" in out_file.read_text(encoding="utf-8")

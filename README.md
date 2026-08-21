@@ -82,8 +82,13 @@ qualquer coisa marcada assim seria recusada por padrão (fail-safe) até esse ti
 
 ### Sistema & Conveniência
 - **Inicialização automática com o Windows**, ativa por padrão — liga/desliga a qualquer momento
-  em Configurações → Geral, sem precisar reinstalar nada. Usa a chave do usuário no registro
-  (`HKCU\...\Run`), sem precisar de admin.
+  em Configurações → Geral, sem precisar reinstalar nada. Usa uma Tarefa Agendada (cobre acordar
+  do modo de espera, não só login), com fallback automático pra chave do registro
+  (`HKCU\...\Run`) em máquinas onde o Agendador de Tarefas nega a criação. Nenhum dos dois
+  precisa de admin.
+- **Diagnóstico local** (Configurações → Diagnóstico): checa localmente, sem rede, se Python, Qt,
+  áudio, Whisper, Tesseract, chave de API, sprites, configuração, allowlist e autostart estão
+  funcionando — com botão pra exportar o relatório em texto (nunca inclui a chave de verdade).
 
 ---
 
