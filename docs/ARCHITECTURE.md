@@ -248,6 +248,24 @@ volta a um padrão.
 qualquer captura já em andamento agora (Modo Tradução, áudio do sistema) —
 os outros presets só mudam o que vai acontecer daqui pra frente.
 
+## Attention Budget
+
+`_maybe_speak_spontaneously` decidia se comentava sozinha com um relógio
+fixo: "já se passaram N segundos desde o último comentário?" — mesmo N
+jogando, ocioso, ou no meio de qualquer coisa. `AttentionBudget`
+(`src/core/attention_budget.py`) troca isso por um orçamento que se
+regenera com o tempo (token bucket, não relógio): a taxa de regeneração
+varia com o contexto — mais devagar durante `GAMING` (não quer interromper
+a partida), mais rápido quando ocioso há um tempo (`idle_seconds >
+ATTENTION_IDLE_THRESHOLD_S`, nada mais competindo pela atenção), normal
+nos outros casos. `can_speak()` só consulta se há orçamento suficiente;
+`spend()` é chamado separadamente só quando o comentário de fato acontece
+— assim uma decisão de não falar (ex: a IA não teve nada a dizer) não
+gasta orçamento à toa. O teto (`MAX_BUDGET`) evita que um silêncio longo
+vire uma rajada de comentários assim que termina. O `idle_gap` (nunca
+falar logo depois de uma interação real) continua existindo como uma
+checagem separada, antes do orçamento — são preocupações diferentes.
+
 ## Observabilidade local
 
 - `ActivityLog` (`src/core/activity_log.py`): histórico amigável de ações

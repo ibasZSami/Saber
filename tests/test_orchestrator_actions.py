@@ -5,13 +5,14 @@ from PySide6.QtCore import QTimer
 
 from src.core.orchestrator import (
     CompanionOrchestrator, SPONTANEOUS_TALK_PROMPT, MAX_HEADLINE_OFFERS,
-    NERD_SPONTANEOUS_TALK_IDLE_GAP_S, NERD_SPONTANEOUS_TALK_CHECK_INTERVAL_S,
+    NERD_SPONTANEOUS_TALK_IDLE_GAP_S,
 )
 from src.core.event_bus import EventBus
 from src.core.agent_core import AgentCore
 from src.core.tool_registry import build_default_registry
 from src.vision.continuous_vision import ContinuousVisionBuffer, VisionMode
 from src.core.translation_mode import TranslationModeState
+from src.core.attention_budget import AttentionBudget
 
 
 def _bare_orchestrator():
@@ -1554,10 +1555,11 @@ class TestMaybeSpeakSpontaneously:
         orch = CompanionOrchestrator.__new__(CompanionOrchestrator)
         orch.spontaneous_talk_enabled = overrides.pop("spontaneous_talk_enabled", True)
         orch.nerd_mode_enabled = overrides.pop("nerd_mode_enabled", False)
+        orch._is_game_active = overrides.pop("is_game_active", False)
         orch.state_machine = MagicMock()
         orch.state_machine.get_state.return_value = overrides.pop("state", "IDLE")
         orch._last_interaction_time = overrides.pop("last_interaction_time", time.monotonic() - 10_000)
-        orch._last_spontaneous_time = overrides.pop("last_spontaneous_time", 0.0)
+        orch.attention_budget = overrides.pop("attention_budget", AttentionBudget(now=time.monotonic() - 10_000))
         orch._trigger_spontaneous_comment = MagicMock()
         return orch
 
@@ -1582,8 +1584,8 @@ class TestMaybeSpeakSpontaneously:
         orch._maybe_speak_spontaneously()
         orch._trigger_spontaneous_comment.assert_not_called()
 
-    def test_does_not_trigger_too_soon_after_last_spontaneous_comment(self):
-        orch = self._bare_orchestrator(last_spontaneous_time=time.monotonic())
+    def test_does_not_trigger_when_budget_is_not_ready(self):
+        orch = self._bare_orchestrator(attention_budget=AttentionBudget(now=time.monotonic()))
         orch._maybe_speak_spontaneously()
         orch._trigger_spontaneous_comment.assert_not_called()
 
@@ -1591,6 +1593,25 @@ class TestMaybeSpeakSpontaneously:
         orch = self._bare_orchestrator()
         orch._maybe_speak_spontaneously()
         orch._trigger_spontaneous_comment.assert_called_once()
+
+    def test_spends_the_budget_when_it_triggers(self):
+        orch = self._bare_orchestrator()
+        orch._maybe_speak_spontaneously()
+        assert orch.attention_budget.can_speak(now=time.monotonic()) is False
+
+    def test_gaming_slows_pacing_enough_to_not_trigger_yet(self):
+        """The exact scenario Attention Budget exists for: a fixed timer
+        would fire the same regardless of context; this must not, once
+        gaming's slower regen is accounted for."""
+        # 10_000s is plenty for normal/idle regen but not for the
+        # much-slower gaming rate combined with a short elapsed window —
+        # use a budget that only just started accumulating.
+        orch = self._bare_orchestrator(
+            is_game_active=True,
+            attention_budget=AttentionBudget(now=time.monotonic() - 100),
+        )
+        orch._maybe_speak_spontaneously()
+        orch._trigger_spontaneous_comment.assert_not_called()
 
 
 class TestBuildNewsContext:
@@ -1881,10 +1902,14 @@ class TestNerdModeAffectsSpontaneousTiming:
         orch = CompanionOrchestrator.__new__(CompanionOrchestrator)
         orch.spontaneous_talk_enabled = True
         orch.nerd_mode_enabled = overrides.pop("nerd_mode_enabled", False)
+        orch._is_game_active = False
         orch.state_machine = MagicMock()
         orch.state_machine.get_state.return_value = "IDLE"
         orch._last_interaction_time = overrides.pop("last_interaction_time", time.monotonic())
-        orch._last_spontaneous_time = overrides.pop("last_spontaneous_time", time.monotonic())
+        # Plenty of regenerated budget by default — these tests are about
+        # the idle_gap threshold specifically, not budget pacing (see
+        # TestMaybeSpeakSpontaneously for that).
+        orch.attention_budget = overrides.pop("attention_budget", AttentionBudget(now=time.monotonic() - 10_000))
         orch._trigger_spontaneous_comment = MagicMock()
         return orch
 
@@ -1894,18 +1919,17 @@ class TestNerdModeAffectsSpontaneousTiming:
         orch = self._bare_orchestrator(
             nerd_mode_enabled=False,
             last_interaction_time=time.monotonic() - (NERD_SPONTANEOUS_TALK_IDLE_GAP_S + 1),
-            last_spontaneous_time=time.monotonic() - (NERD_SPONTANEOUS_TALK_CHECK_INTERVAL_S + 1),
         )
         orch._maybe_speak_spontaneously()
         orch._trigger_spontaneous_comment.assert_not_called()
 
     def test_nerd_mode_triggers_at_the_shorter_idle_gap(self):
         """Same elapsed time as above, but with nerd mode on — the shorter
-        thresholds should be satisfied."""
+        idle gap should be satisfied, and the budget (seeded with plenty of
+        regen time) affords the remark."""
         orch = self._bare_orchestrator(
             nerd_mode_enabled=True,
             last_interaction_time=time.monotonic() - (NERD_SPONTANEOUS_TALK_IDLE_GAP_S + 1),
-            last_spontaneous_time=time.monotonic() - (NERD_SPONTANEOUS_TALK_CHECK_INTERVAL_S + 1),
         )
         orch._maybe_speak_spontaneously()
         orch._trigger_spontaneous_comment.assert_called_once()

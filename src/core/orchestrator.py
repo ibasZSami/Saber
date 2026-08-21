@@ -59,6 +59,7 @@ from src.desktop.web_search import WebSearchProvider
 from src.memory.manager import MemoryManager
 from src.memory.relevance import select_relevant_memories
 from src.core.silva_modes import SILVA_MODES, get_preset
+from src.core.attention_budget import AttentionBudget
 from src.voice.tts import EdgeTTSProvider, Pyttsx3Provider, FallbackTTSProvider, DEFAULT_VOICE
 from src.voice.input import VoiceInput
 from src.voice.system_audio import SystemAudioListener
@@ -115,17 +116,22 @@ CANCEL_TASK_PHRASES = ["cancela a tarefa", "cancela isso", "para a tarefa", "par
 CANCEL_TASK_CANCELLED_REPLY = "Beleza, parei a tarefa."
 CANCEL_TASK_NOTHING_RUNNING_REPLY = "Não tem nenhuma tarefa rodando pra cancelar."
 
-# NERD MODE makes spontaneous talk noticeably more present — shorter checks
-# and a shorter idle gap — without yet being the full multi-signal relevance
-# scoring described in the roadmap (InitiativeEngine, not built yet).
+# NERD MODE makes spontaneous talk noticeably more present — shorter idle
+# gap and faster AttentionBudget regen (see src/core/attention_budget.py).
 NERD_SPONTANEOUS_TALK_CHECK_INTERVAL_S = 40
 NERD_SPONTANEOUS_TALK_IDLE_GAP_S = 20
 
-# How often to even consider making a spontaneous remark, and how long to
-# stay quiet after the user last spoke, so it doesn't talk over a fresh
-# exchange or chatter constantly.
+# How often to even consider making a spontaneous remark (the QTimer's own
+# tick rate — cheap to check often since AttentionBudget itself is what
+# actually gates whether a remark happens), and how long to stay quiet
+# after the user last spoke, so it never talks over a fresh exchange.
 SPONTANEOUS_TALK_CHECK_INTERVAL_S = 75
 SPONTANEOUS_TALK_IDLE_GAP_S = 45
+
+# Attention Budget (see src/core/attention_budget.py) — how long since the
+# last interaction counts as "idle" for regen purposes (faster pacing when
+# nothing else has the user's attention).
+ATTENTION_IDLE_THRESHOLD_S = 180
 
 # FASE 12 — how often due reminders are checked.
 SCHEDULER_CHECK_INTERVAL_S = 5
@@ -214,10 +220,13 @@ class CompanionOrchestrator:
         self._last_app_category = None
         self._is_game_active = False
 
-        # Spontaneous/unprompted remarks ("como numa chamada")
+        # Spontaneous/unprompted remarks ("como numa chamada") — pacing is
+        # AttentionBudget's job (regenerating token bucket, context-aware),
+        # not a bare "N seconds since last remark" clock. See
+        # src/core/attention_budget.py.
         self.spontaneous_talk_enabled = self.settings.get("spontaneous_talk_enabled", True)
         self._last_interaction_time = time.monotonic()
-        self._last_spontaneous_time = 0.0
+        self.attention_budget = AttentionBudget()
         self.news_provider = NewsProvider()
         # How many times each headline has been offered to the model. A fast/
         # weak model doesn't reliably follow "prioritize this" every single
@@ -725,18 +734,22 @@ class CompanionOrchestrator:
         if self.state_machine.get_state() in ("THINKING", "LISTENING"):
             return  # an exchange is already happening — don't talk over it
 
-        if self.nerd_mode_enabled:
-            idle_gap, check_interval = NERD_SPONTANEOUS_TALK_IDLE_GAP_S, NERD_SPONTANEOUS_TALK_CHECK_INTERVAL_S
-        else:
-            idle_gap, check_interval = SPONTANEOUS_TALK_IDLE_GAP_S, SPONTANEOUS_TALK_CHECK_INTERVAL_S
-
+        idle_gap = NERD_SPONTANEOUS_TALK_IDLE_GAP_S if self.nerd_mode_enabled else SPONTANEOUS_TALK_IDLE_GAP_S
         now = time.monotonic()
-        if now - self._last_interaction_time < idle_gap:
+        idle_seconds = now - self._last_interaction_time
+        if idle_seconds < idle_gap:
             return  # the user just interacted — give it a beat
-        if now - self._last_spontaneous_time < check_interval:
+
+        # AttentionBudget paces this instead of a flat "N seconds since the
+        # last remark" clock — slower while gaming (don't interrupt),
+        # faster once genuinely idle, nothing else competing for attention.
+        is_idle = idle_seconds > ATTENTION_IDLE_THRESHOLD_S
+        if not self.attention_budget.can_speak(
+            nerd_mode=self.nerd_mode_enabled, is_game=self._is_game_active, is_idle=is_idle, now=now,
+        ):
             return
 
-        self._last_spontaneous_time = now
+        self.attention_budget.spend(now=now)
         self._trigger_spontaneous_comment()
 
     def _build_news_context(self) -> str:

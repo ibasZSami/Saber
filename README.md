@@ -30,7 +30,9 @@ vez em quando (inclusive notícias reais), e tem controle real e permissionado s
 - **Fala espontânea** ("como numa chamada"): comenta sozinho de vez em quando quando o usuário
   fica quieto — piadas, curiosidades, perguntas sobre o dia, ou **notícias reais** (ver abaixo).
   Liga/desliga a qualquer momento por voz ou texto: "pare de falar aleatoriamente" /
-  "ativar falar aleatoriamente".
+  "ativar falar aleatoriamente". O ritmo é decidido por um **Attention Budget** — não é um timer
+  fixo, é um orçamento que se regenera mais devagar enquanto você está jogando (não interrompe) e
+  mais rápido quando está ocioso, em vez do mesmo intervalo cravado sempre.
 - **Notícias reais** (Brasil + mundo), via RSS público do Google Notícias — sem API key. A
   manchete mais em destaque de cada feed é sinalizada como prioridade; cada manchete é oferecida
   no máximo 2 vezes antes de sair de rotação, pra não ficar repetindo o mesmo assunto.
@@ -204,7 +206,7 @@ voz e permissões iniciais.
 pytest tests/ --cov=src --cov-report=term-missing
 ```
 
-943 testes (91% de cobertura) cobrindo orquestrador, ferramentas/permissões, Agent Engine (task
+958 testes (91% de cobertura) cobrindo orquestrador, ferramentas/permissões, Agent Engine (task
 loop), mouse/teclado, terminal controlado, OCR estruturado, Translation Engine, overlay, Modo
 Tradução, voz, visão contínua, memória, lembretes/scheduler, notícias, mixer de som, autostart,
 pesquisa em segundo plano, Modo Nerd, tela de Aplicativos, sprites/animação, estado
@@ -220,13 +222,11 @@ Documentação técnica (arquitetura, segurança, padrões de teste) em [`docs/`
 Silva está evoluindo de "conjunto de features" pra uma arquitetura de **Local AI Desktop Agent**
 (Agent Core, Tool Registry, Scheduler, Visão Contínua, Emotion Engine, Agent Engine com loop
 multi-passo (com gatilho de chat), controle de mouse/teclado, terminal controlado, Modo Tradução
-com overlay, Memória em camadas com filtro de relevância, Privacy Center e Modos do Silva já feitos
-acima). O que falta, em ordem:
+com overlay, Memória em camadas com filtro de relevância, Privacy Center, Modos do Silva e
+Attention Budget já feitos acima). O que falta, em ordem:
 
 - **RAG local (documentos/código)**: mencionado como preparação futura na Memória em camadas —
   precisa de indexação/chunking/busca próprios, deliberadamente deixado fora por enquanto.
-- **Attention Budget**: controle mais inteligente da frequência de fala espontânea, além dos
-  timers fixos atuais.
 - **Voice UX / barge-in**: interromper a Silva no meio da fala não existe ainda — precisa de um
   handle real de cancelamento no ciclo de vida do TTS.
 - **Plugins**: nenhuma estrutura de plugin existe ainda — planejado como interface simples
