@@ -1,4 +1,6 @@
+import subprocess
 import sys
+from unittest.mock import patch
 
 from src.core.event_bus import EventBus
 from src.desktop.terminal_tool import TerminalToolManager
@@ -63,6 +65,20 @@ class TestExecution:
         manager, _ = _manager({"py": _PYTHON})
         result = manager.run("py", "--version")
         assert result["success"] is True
+
+    def test_timeout_is_reported_as_a_clean_failure(self):
+        manager, _ = _manager({"py": _PYTHON})
+        with patch("subprocess.run", side_effect=subprocess.TimeoutExpired(cmd="py", timeout=30)):
+            result = manager.run("py", "--version")
+        assert result["success"] is False
+        assert "excedeu" in result["error"]
+
+    def test_unexpected_exception_is_caught_not_raised(self):
+        manager, _ = _manager({"py": _PYTHON})
+        with patch("subprocess.run", side_effect=OSError("disco cheio")):
+            result = manager.run("py", "-c \"1\"")  # must not raise
+        assert result["success"] is False
+        assert "disco cheio" in result["error"]
 
 
 class TestEventEmission:

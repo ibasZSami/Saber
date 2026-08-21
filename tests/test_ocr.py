@@ -120,6 +120,14 @@ class TestGroupWordsIntoLines:
         line = next(b for b in blocks if b.text == "You ok?")
         assert line.confidence == (96.5 + 91.0) / 2
 
+    def test_non_numeric_confidence_is_treated_as_below_threshold(self):
+        data = _sample_image_to_data()
+        data["conf"][1] = "not_a_number"
+        blocks = _group_words_into_lines(data, min_confidence=30.0)
+        by_text = {b.text: b for b in blocks}
+        assert "ok?" in by_text
+        assert "You ok?" not in by_text
+
     def test_empty_input_returns_no_blocks(self):
         empty = {"text": [], "conf": [], "left": [], "top": [], "width": [], "height": [],
                   "block_num": [], "par_num": [], "line_num": []}

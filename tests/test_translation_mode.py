@@ -1,9 +1,11 @@
+import time
 from unittest.mock import MagicMock
 
 from src.core.event_bus import EventBus
 from src.core.translation_mode import TranslationMode, TranslationModeState
 from src.ui.overlay_window import OverlayBlock
 from src.vision.ocr import TextBlock
+from src.vision.translation_engine import TranslationEngine
 
 
 def _mode(**overrides):
@@ -114,6 +116,36 @@ class TestTick:
         mode, _ = _mode(change_detector=change_detector)
 
         mode._tick()  # should not raise
+
+
+class TestTickDoesNotBlock:
+    def test_tick_returns_immediately_even_with_a_slow_translation(self):
+        """FASE 9 perf requirement: a slow AI translation call must never
+        block the tick (and therefore the GUI thread it runs on) — this is
+        the real reason translate_batch_async exists instead of a direct
+        translate_batch call in _tick()."""
+        change_detector = MagicMock()
+        change_detector.has_changed.return_value = True
+        ocr_provider = MagicMock()
+        ocr_provider.extract_structured.return_value = [
+            TextBlock(text="You ok?", x=10, y=20, width=50, height=15, confidence=90.0),
+        ]
+
+        slow_ai_provider = MagicMock()
+
+        def _slow_chat(*args, **kwargs):
+            time.sleep(0.3)
+            return '{"1": "Você bem?"}'
+
+        slow_ai_provider.chat.side_effect = _slow_chat
+        real_engine = TranslationEngine(slow_ai_provider, EventBus())
+        mode, _ = _mode(change_detector=change_detector, ocr_provider=ocr_provider, translation_engine=real_engine)
+
+        start = time.time()
+        mode._tick()
+        elapsed = time.time() - start
+
+        assert elapsed < 0.1  # the 0.3s "AI call" happened on a background thread
 
 
 class TestTranslatedResultAppliedToOverlay:

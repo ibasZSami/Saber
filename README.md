@@ -66,6 +66,22 @@ vez em quando (inclusive notícias reais), e tem controle real e permissionado s
   [Tesseract-OCR](https://github.com/UB-Mannheim/tesseract) instalado no sistema
   (`winget install --id UB-Mannheim.TesseractOCR -e`) — binário externo, não é dependência Python.
 
+### Modo Tradução (overlay contínuo)
+Diga **"traduzir"** (ou "traduzir a tela") pra ligar; "parar tradução" pra desligar. Diferente do
+"Traduz isso" acima (uma tradução avulsa), este fica rodando: captura a tela periodicamente, só
+faz OCR quando algo realmente mudou (diff de pixels), só traduz texto que ainda não traduziu antes
+(cache — texto repetido nunca gera uma chamada de IA nova), e desenha a tradução **sobre** a
+posição original do texto num overlay transparente:
+- Janela **transparente, sempre no topo, click-through de verdade** — o mouse/teclado passam
+  direto pra o que está por baixo, nunca rouba o foco da aplicação.
+- Bounding box por linha de texto (via `pytesseract`), fonte que encolhe automaticamente se a
+  tradução em português ficar maior que o texto original.
+- Tradução roda em segundo plano (nunca trava a tela nem a interface principal) e escala com o
+  DPI da tela.
+- **Limitação real, não escondida**: não funciona sobre jogos em tela cheia *exclusiva* (só
+  janela/borderless) — isso é uma restrição do próprio Windows, nenhum overlay consegue desenhar
+  por cima de fullscreen exclusivo sem integrar com o renderizador do próprio jogo.
+
 ### Voz
 - **Push-to-Talk (F8)** e **modo mãos-livres** (tecla `+`) via microfone, transcrito **localmente**
   com `faster-whisper` (modelo `small` por padrão, configurável) — nunca sai pra nuvem.
@@ -102,7 +118,9 @@ Motor de tarefa multi-passo (`TaskManager` + `AgentEngine`): dado um objetivo, r
 de OBSERVAR → DECIDIR → AGIR → VERIFICAR → REPETIR até concluir ou até bater um limite de
 segurança (número de passos, tempo, ou a mesma ação repetindo). Cada passo ainda passa pelo mesmo
 `AgentCore`/allowlist/confirmação do chat normal — uma tarefa multi-passo não tem atalho de
-permissão. Ainda não conectado a um comando de chat dedicado (é o motor, testado e funcional, sem
+permissão. Inclui `observe_screen` (lê o texto da tela por OCR, pra decidir o próximo passo) e
+`activate_translation_mode` como ferramentas de verdade, não só descritivas. Ainda não conectado a
+um comando de chat dedicado pra iniciar uma tarefa autônoma (é o motor, testado e funcional, sem
 gatilho de invocação ainda) — ver `docs/ARCHITECTURE.md`.
 
 ### Sistema & Conveniência
@@ -173,9 +191,10 @@ voz e permissões iniciais.
 pytest tests/ --cov=src --cov-report=term-missing
 ```
 
-786 testes cobrindo orquestrador, ferramentas/permissões, Agent Engine (task loop), mouse/teclado,
-terminal controlado, voz, visão contínua, memória, lembretes/scheduler, notícias, mixer de som,
-autostart, pesquisa em segundo plano, Modo Nerd, tela de Aplicativos, sprites/animação, estado
+874 testes (91% de cobertura) cobrindo orquestrador, ferramentas/permissões, Agent Engine (task
+loop), mouse/teclado, terminal controlado, OCR estruturado, Translation Engine, overlay, Modo
+Tradução, voz, visão contínua, memória, lembretes/scheduler, notícias, mixer de som, autostart,
+pesquisa em segundo plano, Modo Nerd, tela de Aplicativos, sprites/animação, estado
 funcional/emoção, diagnóstico, atividade, configuração, EventBus, confirmação de permissão e
 segurança dedicada. Roda automaticamente a cada push/PR (ver badge no topo).
 
@@ -186,8 +205,9 @@ Documentação técnica (arquitetura, segurança, padrões de teste) em [`docs/`
 ## 🗺️ Roadmap — o que falta
 
 Silva está evoluindo de "conjunto de features" pra uma arquitetura de **Local AI Desktop Agent**
-(Agent Core, Tool Registry, Scheduler, Visão Contínua e Emotion Engine já feitos acima). O que
-falta, em ordem:
+(Agent Core, Tool Registry, Scheduler, Visão Contínua, Emotion Engine, Agent Engine com loop
+multi-passo, controle de mouse/teclado, terminal controlado e Modo Tradução com overlay já feitos
+acima). O que falta, em ordem:
 
 - **Memória em camadas**: hoje é só key/value + histórico plano. Falta separar working/short-term/
   long-term, filtrar relevância antes de montar o prompt (hoje tudo entra sempre), e preparar
@@ -204,3 +224,11 @@ falta, em ordem:
   (`plugins/discord/`, `plugins/spotify/`, etc.), não uma prioridade imediata.
 - **Empacotamento**: hoje roda só via `install.bat`/`run.bat` + Python — gerar um instalador
   (`Silva-Setup.exe`) fica pra depois, sem prioridade sobre o resto.
+- **Gatilho de chat pro Agent Engine autônomo**: o motor de tarefa multi-passo existe e funciona
+  (testado), mas nada em texto/voz ainda dispara "faça X como uma tarefa longa" — hoje só é
+  usável programaticamente. Decisão de UX pendente (como diferenciar um pedido de tarefa longa de
+  uma pergunta normal), não implementação.
+- **Browser real (nível DOM)**: "abrir navegador e pesquisar X" funciona (`open_url`/`search_web`),
+  mas clicar/ler dentro de uma página específica precisaria de Playwright/Selenium — dependência
+  pesada (baixa um Chromium inteiro), deixada de fora de propósito por enquanto. Mouse/teclado já
+  cobrem parte disso manualmente quando habilitados.

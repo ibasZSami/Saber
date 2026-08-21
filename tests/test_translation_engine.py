@@ -1,5 +1,5 @@
 import json
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from src.core.event_bus import EventBus
 from src.vision.translation_engine import TranslationEngine
@@ -74,6 +74,15 @@ class TestTranslateBatch:
     def test_malformed_ai_response_falls_back_to_original_text(self):
         ai_provider = MagicMock()
         ai_provider.chat.return_value = "isso não é JSON"
+        engine, _ = _engine(ai_provider)
+
+        result = engine.translate_batch(["Hello"])
+
+        assert result == {"Hello": "Hello"}
+
+    def test_response_with_braces_but_invalid_json_falls_back_to_original_text(self):
+        ai_provider = MagicMock()
+        ai_provider.chat.return_value = "{isso parece json mas não é}"
         engine, _ = _engine(ai_provider)
 
         result = engine.translate_batch(["Hello"])
@@ -173,5 +182,24 @@ class TestTranslateBatchAsync:
 
         engine.translate_batch_async(["Hello"], _on_done)
         event.wait(timeout=5)
+
+        assert done == {"Hello": "Hello"}
+
+    def test_on_done_still_called_when_translate_batch_itself_raises(self):
+        """Defense-in-depth: translate_batch never actually raises today
+        (its own AI call is already wrapped), but the async worker's own
+        try/except must still hand back a usable fallback if that ever
+        changes, rather than silently losing the callback."""
+        engine, _ = _engine()
+        done = {}
+        event = __import__("threading").Event()
+
+        def _on_done(result):
+            done.update(result)
+            event.set()
+
+        with patch.object(engine, "translate_batch", side_effect=RuntimeError("boom")):
+            engine.translate_batch_async(["Hello"], _on_done)
+            event.wait(timeout=5)
 
         assert done == {"Hello": "Hello"}

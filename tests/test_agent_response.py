@@ -25,6 +25,12 @@ class TestParseAgentResponse:
         parsed = parse_agent_response(raw)
         assert parsed["action"] == "search_web"
 
+    def test_braces_present_but_invalid_json_also_ends_the_task(self):
+        raw = "{isso parece json mas não é}"
+        parsed = parse_agent_response(raw)
+        assert parsed["done"] is True
+        assert parsed["result"]
+
     def test_malformed_json_ends_the_task_instead_of_looping(self):
         """Regression guard: unparseable output must never be treated as
         'keep going' — that would loop blind against a model that stopped
