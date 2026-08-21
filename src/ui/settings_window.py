@@ -6,6 +6,7 @@ from PySide6.QtWidgets import (
 from src.config.settings import Settings
 from src.core import autostart
 from src.core.diagnostics import format_report, run_diagnostics
+from src.core.activity_log import format_activity_log
 
 # (display label, edge_tts voice name)
 VOICE_OPTIONS = [
@@ -21,9 +22,10 @@ def _pitch_str_to_hz(pitch_str: str) -> int:
         return 0
 
 class SettingsWindow(QWidget):
-    def __init__(self, settings: Settings, permission_manager=None, policy_manager=None):
+    def __init__(self, settings: Settings, permission_manager=None, policy_manager=None, activity_log=None):
         super().__init__()
         self.settings = settings
+        self.activity_log = activity_log
         # Lets a saved allowlist change take effect immediately — without this,
         # DesktopActionManager keeps using the snapshot PermissionManager took
         # at orchestrator startup until the app is restarted.
@@ -198,6 +200,22 @@ class SettingsWindow(QWidget):
         diag_layout.addLayout(diag_btn_row)
         tabs.addTab(diag_tab, "Diagnóstico")
 
+        # Tab 7: Atividade — histórico amigável do que a Silva fez (abriu app,
+        # guardou memória, concluiu pesquisa...), sem exigir olhar o log de
+        # depuração. Só existe em memória (não sobrevive a reiniciar o app).
+        activity_tab = QWidget()
+        activity_layout = QVBoxLayout(activity_tab)
+        activity_layout.addWidget(QLabel("O que a Silva fez desde que foi aberta."))
+        self.activity_output = QTextEdit()
+        self.activity_output.setReadOnly(True)
+        self.activity_output.setFontFamily("Consolas")
+        activity_layout.addWidget(self.activity_output)
+        refresh_activity_btn = QPushButton("Atualizar")
+        refresh_activity_btn.clicked.connect(self._refresh_activity_log)
+        activity_layout.addWidget(refresh_activity_btn)
+        tabs.addTab(activity_tab, "Atividade")
+        self._refresh_activity_log()
+
         layout.addWidget(tabs)
 
         save_btn = QPushButton("Salvar Configurações")
@@ -269,6 +287,10 @@ class SettingsWindow(QWidget):
             self.permission_manager.allowlist.clear()
             self.permission_manager.allowlist.update(self.allowlist)
         self.close()
+
+    def _refresh_activity_log(self):
+        entries = self.activity_log.entries() if self.activity_log else []
+        self.activity_output.setPlainText(format_activity_log(entries))
 
     def _run_diagnostics(self):
         checks = run_diagnostics(self.settings)

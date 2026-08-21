@@ -74,7 +74,9 @@ def _start_main(app, settings):
     chat_window = ChatWindow(settings.get("character_name", "Silva"))
 
     # Settings Window
-    settings_window = SettingsWindow(settings, orchestrator.permission_manager, orchestrator.policy_manager)
+    settings_window = SettingsWindow(
+        settings, orchestrator.permission_manager, orchestrator.policy_manager, orchestrator.activity_log,
+    )
 
     # Connect signals
     pet_window.on_double_click = lambda: (chat_window.show(), chat_window.raise_(), chat_window.activateWindow())

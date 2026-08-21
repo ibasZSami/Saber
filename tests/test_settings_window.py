@@ -1,6 +1,8 @@
 from unittest.mock import patch
 
 from src.config.settings import Settings
+from src.core.activity_log import ActivityLog
+from src.core.event_bus import EventBus
 from src.desktop.permission_policy import PermissionPolicyManager, PolicyDecision
 from src.desktop.permissions import PermissionManager
 from src.ui.settings_window import SettingsWindow
@@ -163,3 +165,38 @@ class TestDiagnosticsTab:
             window._export_diagnostics()
 
         assert "SILVA DIAGNOSTICS" in out_file.read_text(encoding="utf-8")
+
+
+class TestActivityTab:
+    def test_without_an_activity_log_shows_the_empty_message(self, tmp_path):
+        settings = _settings(tmp_path, allowlist={"notepad": "notepad.exe"})
+        window = SettingsWindow(settings, activity_log=None)
+
+        text = window.activity_output.toPlainText()
+
+        assert "Nenhuma atividade registrada ainda." in text
+
+    def test_shows_entries_from_the_provided_activity_log(self, tmp_path):
+        settings = _settings(tmp_path, allowlist={"notepad": "notepad.exe"})
+        bus = EventBus()
+        bus.reset()
+        activity_log = ActivityLog(bus)
+        bus.emit("MEMORY_CREATED", key="comida favorita", value="pizza")
+        window = SettingsWindow(settings, activity_log=activity_log)
+
+        text = window.activity_output.toPlainText()
+
+        assert "comida favorita" in text
+
+    def test_refresh_button_pulls_in_new_entries(self, tmp_path):
+        settings = _settings(tmp_path, allowlist={"notepad": "notepad.exe"})
+        bus = EventBus()
+        bus.reset()
+        activity_log = ActivityLog(bus)
+        window = SettingsWindow(settings, activity_log=activity_log)
+        assert "cor favorita" not in window.activity_output.toPlainText()
+
+        bus.emit("MEMORY_CREATED", key="cor favorita", value="azul")
+        window._refresh_activity_log()
+
+        assert "cor favorita" in window.activity_output.toPlainText()

@@ -16,6 +16,7 @@ from src.core.event_bus import (
 )
 from src.core.state_machine import StateMachine
 from src.core.silva_state import SilvaState
+from src.core.activity_log import ActivityLog
 from src.core.tool_registry import build_default_registry
 from src.core.agent_core import AgentCore
 from src.core.news import NewsProvider
@@ -292,6 +293,11 @@ class CompanionOrchestrator:
         # constructed above — see src/core/silva_state.py. Built last, once
         # every subsystem it reads from actually exists.
         self.silva_state = SilvaState(self)
+
+        # Friendly action history ("Atividade" tab in Settings) — subscribes
+        # to the EventBus above, so it must be built after everything that
+        # emits the events it listens for is already wired up.
+        self.activity_log = ActivityLog(self.event_bus)
 
     def _init_tts_provider(self):
         provider_name = self.settings.get("voice_provider", "edge_tts")
