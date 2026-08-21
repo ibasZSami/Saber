@@ -45,7 +45,7 @@ from src.desktop.audio_mixer import AudioMixerManager
 from src.desktop.web_search import WebSearchProvider
 
 from src.memory.manager import MemoryManager
-from src.voice.tts import EdgeTTSProvider, Pyttsx3Provider, DEFAULT_VOICE
+from src.voice.tts import EdgeTTSProvider, Pyttsx3Provider, FallbackTTSProvider, DEFAULT_VOICE
 from src.voice.input import VoiceInput
 from src.voice.system_audio import SystemAudioListener
 
@@ -303,7 +303,9 @@ class CompanionOrchestrator:
         provider_name = self.settings.get("voice_provider", "edge_tts")
         if provider_name == "pyttsx3":
             return Pyttsx3Provider()
-        return EdgeTTSProvider()
+        # EdgeTTS needs network; fall back to fully-offline pyttsx3 on failure
+        # instead of going silent — see FallbackTTSProvider's docstring.
+        return FallbackTTSProvider(EdgeTTSProvider(), Pyttsx3Provider())
 
     def _init_ai_provider(self):
         provider_name = self.settings.get("ai_provider", "nvidia")

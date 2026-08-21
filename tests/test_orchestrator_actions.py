@@ -790,10 +790,13 @@ class TestInitTtsProvider:
         orch.settings = FakeSettings(**settings_overrides)
         return orch
 
-    def test_defaults_to_edge_tts(self):
-        from src.voice.tts import EdgeTTSProvider
+    def test_defaults_to_edge_tts_with_a_pyttsx3_fallback(self):
+        from src.voice.tts import EdgeTTSProvider, FallbackTTSProvider, Pyttsx3Provider
         orch = self._bare_orchestrator()
-        assert isinstance(orch._init_tts_provider(), EdgeTTSProvider)
+        provider = orch._init_tts_provider()
+        assert isinstance(provider, FallbackTTSProvider)
+        assert isinstance(provider.primary, EdgeTTSProvider)
+        assert isinstance(provider.fallback, Pyttsx3Provider)
 
     def test_pyttsx3_selected_when_configured(self):
         from src.voice.tts import Pyttsx3Provider

@@ -1,6 +1,8 @@
 from unittest.mock import MagicMock, AsyncMock, patch
 
-from src.voice.tts import Pyttsx3Provider, EdgeTTSProvider, DEFAULT_VOICE, _to_percent_string
+from src.voice.tts import (
+    Pyttsx3Provider, EdgeTTSProvider, FallbackTTSProvider, TTSProvider, DEFAULT_VOICE, _to_percent_string,
+)
 
 
 class TestToPercentString:
@@ -28,16 +30,17 @@ class TestPyttsx3Provider:
         mock_init.return_value = mock_engine
 
         provider = Pyttsx3Provider()
-        provider.speak("olá")
+        result = provider.speak("olá")
 
         mock_engine.say.assert_called_once_with("olá")
         mock_engine.runAndWait.assert_called_once()
+        assert result is True
 
     @patch("pyttsx3.init", side_effect=RuntimeError("no engine"))
     def test_init_failure_disables_engine_without_crashing(self, mock_init):
         provider = Pyttsx3Provider()
         assert provider.engine is None
-        provider.speak("olá")
+        assert provider.speak("olá") is False
 
     @patch("pyttsx3.init")
     def test_speak_error_does_not_propagate(self, mock_init):
@@ -46,7 +49,7 @@ class TestPyttsx3Provider:
         mock_init.return_value = mock_engine
 
         provider = Pyttsx3Provider()
-        provider.speak("olá")  # should not raise
+        assert provider.speak("olá") is False  # should not raise
 
     @patch("pyttsx3.init")
     def test_speak_applies_volume_and_rate(self, mock_init):
@@ -100,7 +103,7 @@ class TestEdgeTTSProvider:
     def test_speak_handles_missing_edge_tts_gracefully(self):
         provider = EdgeTTSProvider()
         with patch.dict("sys.modules", {"edge_tts": None}):
-            provider.speak("olá")
+            assert provider.speak("olá") is False
 
     def test_forwards_voice_rate_volume_pitch_to_communicate(self):
         """Regression test: speak() used to accept voice/volume/speed/pitch but
@@ -118,8 +121,63 @@ class TestEdgeTTSProvider:
 
         with patch.dict("sys.modules", {"edge_tts": fake_edge_tts_module, "pygame": fake_pygame_module}):
             provider = EdgeTTSProvider()
-            provider.speak("oi", voice="pt-BR-AntonioNeural", volume=1.0, speed=1.1, pitch="+20Hz")
+            result = provider.speak("oi", voice="pt-BR-AntonioNeural", volume=1.0, speed=1.1, pitch="+20Hz")
 
         fake_communicate_cls.assert_called_once_with(
             "oi", "pt-BR-AntonioNeural", rate="+10%", volume="+0%", pitch="+20Hz"
         )
+        assert result is True
+
+
+class TestFallbackTTSProvider:
+    def test_returns_true_and_skips_fallback_when_primary_succeeds(self):
+        primary = MagicMock(spec=TTSProvider)
+        primary.speak.return_value = True
+        fallback = MagicMock(spec=TTSProvider)
+
+        provider = FallbackTTSProvider(primary, fallback)
+        result = provider.speak("olá")
+
+        assert result is True
+        fallback.speak.assert_not_called()
+
+    def test_falls_back_when_primary_fails(self):
+        """The actual auto-recovery: EdgeTTS needing network is the realistic
+        failure this guards against — primary.speak() returning False (its
+        exceptions are already swallowed internally, see EdgeTTSProvider)
+        must not mean total silence when a local fallback exists."""
+        primary = MagicMock(spec=TTSProvider)
+        primary.speak.return_value = False
+        fallback = MagicMock(spec=TTSProvider)
+        fallback.speak.return_value = True
+
+        provider = FallbackTTSProvider(primary, fallback)
+        result = provider.speak("olá", voice="v", volume=0.5, speed=1.2, pitch="+10Hz")
+
+        assert result is True
+        fallback.speak.assert_called_once_with("olá", voice="v", volume=0.5, speed=1.2, pitch="+10Hz")
+
+    def test_returns_false_when_both_fail(self):
+        primary = MagicMock(spec=TTSProvider)
+        primary.speak.return_value = False
+        fallback = MagicMock(spec=TTSProvider)
+        fallback.speak.return_value = False
+
+        provider = FallbackTTSProvider(primary, fallback)
+
+        assert provider.speak("olá") is False
+
+    def test_real_providers_wired_together_end_to_end(self):
+        """No mocks on the fallback side: EdgeTTS genuinely unavailable
+        (module missing) must still result in pyttsx3 actually being asked to
+        speak, not just a well-typed mock interaction."""
+        with patch("pyttsx3.init") as mock_init:
+            mock_engine = MagicMock()
+            mock_init.return_value = mock_engine
+            provider = FallbackTTSProvider(EdgeTTSProvider(), Pyttsx3Provider())
+
+            with patch.dict("sys.modules", {"edge_tts": None}):
+                result = provider.speak("olá")
+
+        assert result is True
+        mock_engine.say.assert_called_once_with("olá")

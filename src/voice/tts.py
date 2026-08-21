@@ -15,11 +15,11 @@ def _to_percent_string(multiplier: float) -> str:
 
 
 class TTSProvider:
-    def speak(self, text: str, voice: str = DEFAULT_VOICE, volume: float = 1.0, speed: float = 1.0, pitch: str = "+0Hz"):
+    def speak(self, text: str, voice: str = DEFAULT_VOICE, volume: float = 1.0, speed: float = 1.0, pitch: str = "+0Hz") -> bool:
         raise NotImplementedError
 
 class EdgeTTSProvider(TTSProvider):
-    def speak(self, text: str, voice: str = DEFAULT_VOICE, volume: float = 1.0, speed: float = 1.0, pitch: str = "+0Hz"):
+    def speak(self, text: str, voice: str = DEFAULT_VOICE, volume: float = 1.0, speed: float = 1.0, pitch: str = "+0Hz") -> bool:
         try:
             import edge_tts
             import pygame
@@ -56,8 +56,10 @@ class EdgeTTSProvider(TTSProvider):
                         os.remove(mp3_path)
                     except Exception:
                         pass
+            return True
         except Exception as e:
             logging.error(f"EdgeTTS Error: {e}")
+            return False
 
 class Pyttsx3Provider(TTSProvider):
     def __init__(self):
@@ -93,12 +95,39 @@ class Pyttsx3Provider(TTSProvider):
         except Exception as e:
             logging.debug(f"Could not select a male pyttsx3 voice: {e}")
 
-    def speak(self, text: str, voice: str = "", volume: float = 1.0, speed: float = 1.0, pitch: str = "+0Hz"):
-        if self.engine:
-            try:
-                self.engine.setProperty("volume", max(0.0, min(1.0, volume)))
-                self.engine.setProperty("rate", int(200 * speed))  # pyttsx3 rate is words/minute, ~200 default
-                self.engine.say(text)
-                self.engine.runAndWait()
-            except Exception as e:
-                logging.error(f"pyttsx3 speak error: {e}")
+    def speak(self, text: str, voice: str = "", volume: float = 1.0, speed: float = 1.0, pitch: str = "+0Hz") -> bool:
+        if not self.engine:
+            return False
+        try:
+            self.engine.setProperty("volume", max(0.0, min(1.0, volume)))
+            self.engine.setProperty("rate", int(200 * speed))  # pyttsx3 rate is words/minute, ~200 default
+            self.engine.say(text)
+            self.engine.runAndWait()
+            return True
+        except Exception as e:
+            logging.error(f"pyttsx3 speak error: {e}")
+            return False
+
+
+class FallbackTTSProvider(TTSProvider):
+    """Auto-recovery for the most common real failure mode of the default
+    voice setup: EdgeTTS needs network access (it streams synthesis from
+    Microsoft's service), so a dropped connection silently loses ALL voice
+    output today — speak() already swallows the exception (see above), so
+    nothing tells the user anything went wrong; Silva just goes quiet.
+
+    Wraps a primary provider with a fallback that's tried only when the
+    primary's speak() reports failure (returns False) — normally pyttsx3,
+    which is fully offline. Keeps FASE 18's Diagnóstico/Atividade additions
+    honest: an EdgeTTS outage becomes "spoke via fallback" instead of a
+    silent no-op nothing else in the app can see."""
+
+    def __init__(self, primary: TTSProvider, fallback: TTSProvider):
+        self.primary = primary
+        self.fallback = fallback
+
+    def speak(self, text: str, voice: str = DEFAULT_VOICE, volume: float = 1.0, speed: float = 1.0, pitch: str = "+0Hz") -> bool:
+        if self.primary.speak(text, voice=voice, volume=volume, speed=speed, pitch=pitch):
+            return True
+        logging.warning("Primary TTS failed — falling back to local voice.")
+        return self.fallback.speak(text, voice=voice, volume=volume, speed=speed, pitch=pitch)
