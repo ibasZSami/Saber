@@ -12,9 +12,10 @@ from src.core.event_bus import (
     VISION_REQUESTED, VISION_RESULT, TRANSLATION_REQUESTED,
     USER_SPOKE, SYSTEM_AUDIO_DETECTED, VOICE_STARTED, VOICE_FINISHED,
     ERROR_OCCURRED, SPONTANEOUS_SPEECH,
-    NERD_MODE_TOGGLED, TASK_COMPLETED, TASK_FAILED,
+    NERD_MODE_TOGGLED, VISION_MONITORING_TOGGLED, APP_AUTO_RESOLVED, TASK_COMPLETED, TASK_FAILED,
 )
 from src.core.state_machine import StateMachine
+from src.core.silva_state import SilvaState
 from src.core.tool_registry import build_default_registry
 from src.core.agent_core import AgentCore
 from src.core.news import NewsProvider
@@ -37,6 +38,7 @@ from src.vision.translation import ScreenTranslationManager
 from src.desktop.window_manager import WindowManager
 from src.desktop.application_manager import ApplicationManager
 from src.desktop.permissions import PermissionManager
+from src.desktop.permission_policy import PermissionPolicyManager
 from src.desktop.actions import DesktopActionManager
 from src.desktop.audio_mixer import AudioMixerManager
 from src.desktop.web_search import WebSearchProvider
@@ -156,8 +158,15 @@ COMPLEX_QUERY_KEYWORDS = [
 COMPLEX_QUERY_WORD_THRESHOLD = 25
 
 class CompanionOrchestrator:
-    def __init__(self, settings: Settings):
+    def __init__(self, settings: Settings, confirm_fn=None):
         self.settings = settings
+        # (action, action_param, description) -> bool — asks the user before a
+        # CONFIRM-tier tool runs (see src/core/agent_core.py). Injected rather
+        # than built here so CompanionOrchestrator doesn't need to know about
+        # Qt dialogs; app.py wires the real one (src/ui/confirmation_dialog.py).
+        # None (the default) keeps the old auto-approve behavior — used by
+        # tests and any caller that hasn't wired a real confirmation UI.
+        self.confirm_fn = confirm_fn
         self.event_bus = EventBus()
         self.state_machine = StateMachine("IDLE")
 
@@ -207,8 +216,13 @@ class CompanionOrchestrator:
         self.window_manager = WindowManager()
         self.app_manager = ApplicationManager(self.window_manager)
         self.permission_manager = PermissionManager(self.settings.get("allowlist", {}))
-        self.action_manager = DesktopActionManager(self.permission_manager)
+        self.action_manager = DesktopActionManager(self.permission_manager, on_app_resolved=self._on_app_resolved)
         self.audio_mixer_manager = AudioMixerManager()
+        # Per (action, target) CONFIRM policy — "already decided to always
+        # allow/block this" — distinct from permission_manager's allowlist
+        # (which only answers "do we know how to launch this app at all").
+        # See src/desktop/permission_policy.py.
+        self.policy_manager = PermissionPolicyManager(self.settings)
 
         # Background tasks (e.g. "research_topic") — tracked, non-blocking work
         # that reports back via TASK_COMPLETED/TASK_FAILED instead of a
@@ -226,7 +240,9 @@ class CompanionOrchestrator:
             self.action_manager, self.memory_manager, self.audio_mixer_manager,
             self.background_task_manager, self.research_manager,
         )
-        self.agent_core = AgentCore(self.tool_registry, self.event_bus)
+        self.agent_core = AgentCore(
+            self.tool_registry, self.event_bus, confirm_fn=self.confirm_fn, policy_manager=self.policy_manager,
+        )
 
         # Initialize TTS & Voice Input
         self.tts = self._init_tts_provider()
@@ -272,6 +288,11 @@ class CompanionOrchestrator:
         self.spontaneous_talk_timer.timeout.connect(self._maybe_speak_spontaneously)
         self.spontaneous_talk_timer.start(NERD_SPONTANEOUS_TALK_CHECK_INTERVAL_S * 1000)
 
+        # Read-only "what's happening right now" facade over everything
+        # constructed above — see src/core/silva_state.py. Built last, once
+        # every subsystem it reads from actually exists.
+        self.silva_state = SilvaState(self)
+
     def _init_tts_provider(self):
         provider_name = self.settings.get("voice_provider", "edge_tts")
         if provider_name == "pyttsx3":
@@ -310,6 +331,17 @@ class CompanionOrchestrator:
             return OpenAIProvider(api_key=self.settings.get("api_key", ""), model=self.settings.get("ai_model_complex", "gpt-4o"))
         return None
 
+    def _on_app_resolved(self, app_name: str, command: str):
+        """DesktopActionManager calls this after auto-resolving an app the
+        user asked to open that wasn't in the allowlist yet (see
+        app_resolver.py). Deliberately does NOT persist it — the allowlist is
+        the user's real permission boundary, so an app Silva happened to
+        resolve once shouldn't silently become permanently allowed. Just lets
+        the UI tell the user it was a one-off resolution, and that they can
+        add it for real via Configurações → Aplicativos if they want it
+        remembered."""
+        self.event_bus.emit(APP_AUTO_RESOLVED, app_name=app_name, command=command)
+
     def _on_voice_transcription_failed(self, reason: str):
         logging.info(f"Voice transcription failed: {reason}")
         self.state_manager.set_state("CONFUSED", reason=f"Voice input failed: {reason}")
@@ -329,9 +361,13 @@ class CompanionOrchestrator:
 
     def set_full_vision(self, enabled: bool):
         """Turns the whole screen-vision pipeline on/off: the periodic context
-        timer AND private mode (screenshots are only ever sent when both are set)."""
+        timer AND private mode (screenshots are only ever sent when both are set).
+        Emits VISION_MONITORING_TOGGLED so callers that bypass handle_user_message
+        (the "-" hotkey, tray menu, "minha tela" command) can still show the user
+        a confirmation — before this, toggling here gave no feedback at all."""
         self.settings.set("private_mode", not enabled)
         self.set_vision_monitoring(enabled)
+        self.event_bus.emit(VISION_MONITORING_TOGGLED, enabled=enabled)
 
     def _check_screen_and_app(self):
         # Application context check
@@ -580,26 +616,39 @@ class CompanionOrchestrator:
         }
         threading.Thread(target=self.tts.speak, args=(speech,), kwargs=tts_kwargs, daemon=True).start()
 
-    def handle_user_message(self, user_text: str, on_response=None):
+    def handle_user_message(self, user_text: str, on_response=None, is_direct_input: bool = True):
+        """is_direct_input=False marks text that Silva only OVERHEARD rather
+        than something the user actually said/typed to her — right now that's
+        exactly system-audio transcription (game/PC speaker output routed
+        through app.py's _on_system_audio_transcribed, prefixed
+        "[Áudio do jogo/PC]:"). Content like that must never gain the same
+        authority as a real command: without this flag, a YouTube video in
+        the background merely saying "vira nerd" or "minha tela" would
+        silently flip real app settings, because the keyword-trigger checks
+        below used to run against ANY text, regardless of source. Direct
+        typed/spoken input (chat, hands-free mic, push-to-talk — every other
+        caller) keeps the default True and is unaffected."""
         self._last_interaction_time = time.monotonic()
         self.state_manager.set_state("THINKING", reason="Processing user query")
 
         def _worker():
             try:
-                # A pure command ("vira nerd") gets an instant, deterministic
-                # reply — no AI call needed to answer it, and skipping the LLM
-                # guarantees the exact confirmation phrase.
-                nerd_reply = self._maybe_toggle_nerd_mode(user_text)
-                if nerd_reply is not None:
-                    self.memory_manager.record_turn(user_text, nerd_reply)
-                    self._speak_async(nerd_reply)
-                    if on_response:
-                        on_response(nerd_reply)
-                    return
+                vision_needed = False
+                if is_direct_input:
+                    # A pure command ("vira nerd") gets an instant, deterministic
+                    # reply — no AI call needed to answer it, and skipping the LLM
+                    # guarantees the exact confirmation phrase.
+                    nerd_reply = self._maybe_toggle_nerd_mode(user_text)
+                    if nerd_reply is not None:
+                        self.memory_manager.record_turn(user_text, nerd_reply)
+                        self._speak_async(nerd_reply)
+                        if on_response:
+                            on_response(nerd_reply)
+                        return
 
-                self._maybe_activate_vision_command(user_text)
-                self._maybe_activate_system_audio_command(user_text)
-                self._maybe_toggle_spontaneous_talk(user_text)
+                    self._maybe_activate_vision_command(user_text)
+                    self._maybe_activate_system_audio_command(user_text)
+                    self._maybe_toggle_spontaneous_talk(user_text)
 
                 memories = self.memory_manager.get_memories()
                 history = self.memory_manager.get_history(limit=6)
@@ -607,8 +656,11 @@ class CompanionOrchestrator:
                 # Real screen vision: attach a live screenshot only when enabled, not in
                 # private mode, AND the message actually seems to be about the screen —
                 # vision calls are noticeably slower/less reliable, so we don't pay that
-                # cost (or risk it) on every message; see _select_provider.
-                vision_needed = self._should_attach_vision(user_text)
+                # cost (or risk it) on every message; see _select_provider. Gated behind
+                # is_direct_input too — overheard audio merely mentioning "tela" must not
+                # trigger a real screenshot capture on its own.
+                if is_direct_input:
+                    vision_needed = self._should_attach_vision(user_text)
                 image_b64 = None
                 if vision_needed:
                     self.event_bus.emit(VISION_REQUESTED, reason="message_keyword")
@@ -622,8 +674,11 @@ class CompanionOrchestrator:
                 provider = self._select_provider(vision_needed=bool(image_b64), complex_needed=complex_needed)
                 prompt_payload = self.context_manager.build_prompt_context(memories, user_text, vision_enabled=bool(image_b64))
 
-                # Check explicit translation command
-                if any(cmd in user_text.lower() for cmd in ["traduz", "traduza", "translate"]):
+                # Check explicit translation command — same is_direct_input gate: OCR
+                # capture is a real (if not disk-persisted) screen read, must only ever
+                # fire because the user actually asked, never because overheard audio
+                # happened to contain the word "traduz".
+                if is_direct_input and any(cmd in user_text.lower() for cmd in ["traduz", "traduza", "translate"]):
                     self.event_bus.emit(TRANSLATION_REQUESTED)
                     res_trans = self.translation_manager.translate_current_screen()
                     prompt_payload += f"\n[Resultado OCR Tela]: {res_trans.get('original_text')}"

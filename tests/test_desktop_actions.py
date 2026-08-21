@@ -13,8 +13,9 @@ def _fake_process(name):
 
 
 class TestOpenApplication:
+    @patch("src.desktop.actions.resolve_app_path", return_value=None)
     @patch("subprocess.Popen")
-    def test_not_allowed_returns_false_without_launching(self, mock_popen):
+    def test_not_allowed_and_not_resolvable_returns_false_without_launching(self, mock_popen, mock_resolve):
         pm = PermissionManager({"notepad": "notepad.exe"})
         mgr = DesktopActionManager(pm)
 
@@ -68,6 +69,75 @@ class TestOpenApplication:
 
         assert result is True
         mock_popen.assert_called_once()
+
+
+class TestOpenApplicationAutoResolve:
+    """Apps outside the allowlist are resolved on the fly (App Paths registry /
+    Start Menu / PATH — see app_resolver.py) instead of being refused outright."""
+
+    @patch("src.desktop.actions.resolve_app_path")
+    @patch("subprocess.Popen")
+    def test_resolved_app_launches_with_its_real_path(self, mock_popen, mock_resolve):
+        mock_resolve.return_value = r"C:\Program Files\Mozilla Firefox\firefox.exe"
+        pm = PermissionManager({})
+        mgr = DesktopActionManager(pm)
+
+        result = mgr.open_application("firefox")
+
+        assert result is True
+        mock_resolve.assert_called_once_with("firefox")
+        assert mock_popen.call_args[0][0] == r'"C:\Program Files\Mozilla Firefox\firefox.exe"'
+
+    @patch("src.desktop.actions.resolve_app_path")
+    @patch("subprocess.Popen")
+    def test_resolved_app_is_not_persisted_to_the_allowlist(self, mock_popen, mock_resolve):
+        """Regression guard: resolving an app on the fly must stay a one-off —
+        it must NOT silently grant permanent permission (the allowlist also
+        gates close_application), only the user adding it via Configurações →
+        Aplicativos should do that."""
+        mock_resolve.return_value = r"C:\firefox.exe"
+        pm = PermissionManager({})
+        mgr = DesktopActionManager(pm)
+
+        mgr.open_application("firefox")
+
+        assert not pm.is_app_allowed("firefox")
+
+    @patch("src.desktop.actions.resolve_app_path")
+    @patch("subprocess.Popen")
+    def test_calls_on_app_resolved_callback(self, mock_popen, mock_resolve):
+        mock_resolve.return_value = r"C:\firefox.exe"
+        pm = PermissionManager({})
+        on_resolved = MagicMock()
+        mgr = DesktopActionManager(pm, on_app_resolved=on_resolved)
+
+        mgr.open_application("firefox")
+
+        on_resolved.assert_called_once_with("firefox", r"C:\firefox.exe")
+
+    @patch("src.desktop.actions.resolve_app_path", return_value=None)
+    @patch("subprocess.Popen")
+    def test_no_callback_invoked_when_resolution_fails(self, mock_popen, mock_resolve):
+        pm = PermissionManager({})
+        on_resolved = MagicMock()
+        mgr = DesktopActionManager(pm, on_app_resolved=on_resolved)
+
+        result = mgr.open_application("nonexistent_app_xyz")
+
+        assert result is False
+        on_resolved.assert_not_called()
+
+    @patch("src.desktop.actions.resolve_app_path")
+    @patch("subprocess.Popen")
+    def test_already_allowlisted_app_never_calls_resolver(self, mock_popen, mock_resolve):
+        """The allowlist stays the fast/explicit path — resolution is only a
+        fallback for apps that aren't there yet."""
+        pm = PermissionManager({"notepad": "notepad.exe"})
+        mgr = DesktopActionManager(pm)
+
+        mgr.open_application("notepad")
+
+        mock_resolve.assert_not_called()
 
 
 class TestCloseApplication:

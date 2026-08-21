@@ -3,6 +3,19 @@ import requests
 import json
 from typing import Dict, Any, List
 
+def _redact_secret(text: str, secret: str) -> str:
+    """Strips a secret (the API key) out of a string before it's ever logged
+    or spoken back to the user. Defense in depth, independent of whether the
+    underlying HTTP/SDK library is careful about keeping the key out of its
+    own exception messages — an error raised deep inside a request library
+    can plausibly echo request details back verbatim, and str(e) here is fed
+    straight into both logging.error() and the "speech" field shown/spoken
+    to the user."""
+    if not secret:
+        return text
+    return text.replace(secret, "***")
+
+
 def _build_user_message(prompt: str, image_base64: str = None) -> Any:
     """Builds a plain-text or multimodal user message depending on whether an image is attached."""
     if not image_base64:
@@ -53,9 +66,10 @@ class OpenAIProvider(AIProvider):
             )
             return res.choices[0].message.content
         except Exception as e:
-            logging.error(f"OpenAI Error: {e}")
+            error_message = _redact_secret(str(e), self.api_key)
+            logging.error(f"OpenAI Error: {error_message}")
             return json.dumps({
-                "speech": f"Tive um problema ao me conectar com a IA: {str(e)}",
+                "speech": f"Tive um problema ao me conectar com a IA: {error_message}",
                 "animation": "SAD",
                 "action": "Nenhuma"
             })
@@ -117,9 +131,10 @@ class NvidiaProvider(AIProvider):
             )
             return res.choices[0].message.content
         except Exception as e:
-            logging.error(f"NVIDIA API Error: {e}")
+            error_message = _redact_secret(str(e), self.api_key)
+            logging.error(f"NVIDIA API Error: {error_message}")
             return json.dumps({
-                "speech": f"Erro na conexão com NVIDIA API: {str(e)}",
+                "speech": f"Erro na conexão com NVIDIA API: {error_message}",
                 "animation": "SAD",
                 "action": "Nenhuma"
             })

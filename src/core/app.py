@@ -6,12 +6,13 @@ from PySide6.QtCore import Qt
 from src.config.settings import Settings
 from src.core import autostart
 from src.core.orchestrator import CompanionOrchestrator
-from src.core.event_bus import SPONTANEOUS_SPEECH
+from src.core.event_bus import SPONTANEOUS_SPEECH, VISION_MONITORING_TOGGLED, APP_AUTO_RESOLVED
 from src.ui.pet_window import PetWindow
 from src.ui.chat_window import ChatWindow
 from src.ui.settings_window import SettingsWindow
 from src.ui.wizard import SetupWizard
 from src.ui.tray import TrayIcon
+from src.ui.confirmation_dialog import ConfirmationBridge, make_confirm_fn
 
 def run_app():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -43,7 +44,12 @@ def run_app():
     sys.exit(app.exec())
 
 def _start_main(app, settings):
-    orchestrator = CompanionOrchestrator(settings)
+    # Built before the orchestrator so its AgentCore can be wired with a real
+    # confirm_fn from construction — CONFIRM-tier tools ask via a modal dialog
+    # (blocking whichever worker thread called them, not the GUI) instead of
+    # auto-approving. See src/ui/confirmation_dialog.py.
+    confirmation_bridge = ConfirmationBridge()
+    orchestrator = CompanionOrchestrator(settings, confirm_fn=make_confirm_fn(confirmation_bridge))
 
     # Pet Window
     pet_window = PetWindow(
@@ -52,19 +58,23 @@ def _start_main(app, settings):
         settings.get("click_through", False),
         window_margin_x=settings.get("window_margin_x", 40),
         window_margin_y=settings.get("window_margin_y", 40),
+        scale=settings.get("scale", 1.0),
     )
     pet_window.show()
     pet_window.raise_()
     pet_window.activateWindow()
 
-    # Chat Window
+    # Chat Window — created now (signals need wiring below) but not shown until
+    # the user asks for it (double-click on the pet / tray menu). It used to
+    # show()+activateWindow() unconditionally at startup, which stole focus
+    # from the correctly bottom-right-anchored pet window and, since Qt gives
+    # a freshly-created top-level widget no explicit position, appeared
+    # centered on screen — that's what actually looked like "vem no meio da
+    # tela", not the pet itself.
     chat_window = ChatWindow(settings.get("character_name", "Silva"))
-    chat_window.show()
-    chat_window.raise_()
-    chat_window.activateWindow()
 
     # Settings Window
-    settings_window = SettingsWindow(settings, orchestrator.permission_manager)
+    settings_window = SettingsWindow(settings, orchestrator.permission_manager, orchestrator.policy_manager)
 
     # Connect signals
     pet_window.on_double_click = lambda: (chat_window.show(), chat_window.raise_(), chat_window.activateWindow())
@@ -123,7 +133,11 @@ def _start_main(app, settings):
         chat_window.append_message("🔊 Som do PC", text)
         orchestrator.handle_user_message(
             f"[Áudio do jogo/PC]: {text}",
-            on_response=lambda res: chat_window.append_message(settings.get("character_name", "Silva"), res)
+            on_response=lambda res: chat_window.append_message(settings.get("character_name", "Silva"), res),
+            # Overheard, not said to Silva — must not carry command authority
+            # (toggling Nerd Mode, activating vision, etc.) the way real user
+            # speech/text does. See handle_user_message's docstring.
+            is_direct_input=False,
         )
 
     orchestrator.system_audio_listener.audio_transcribed.connect(_on_system_audio_transcribed)
@@ -142,6 +156,27 @@ def _start_main(app, settings):
     orchestrator.event_bus.subscribe(
         SPONTANEOUS_SPEECH,
         lambda speech: chat_window.append_message(settings.get("character_name", "Silva"), speech)
+    )
+
+    # Visão de Tela: "-" / bandeja / "minha tela" chamam set_full_vision() direto,
+    # sem passar por handle_user_message — sem isso, o toggle acontecia em silêncio.
+    orchestrator.event_bus.subscribe(
+        VISION_MONITORING_TOGGLED,
+        lambda enabled: chat_window.append_message(
+            settings.get("character_name", "Silva"),
+            "👁️ Visão de Tela ativada." if enabled else "👁️ Visão de Tela desativada."
+        )
+    )
+
+    # Abrir app fora da allowlist: resolvido só pra essa vez, não fica salvo —
+    # avisa o usuário disso em vez de deixar acontecer em silêncio.
+    orchestrator.event_bus.subscribe(
+        APP_AUTO_RESOLVED,
+        lambda app_name, command: chat_window.append_message(
+            settings.get("character_name", "Silva"),
+            f"🔓 Abri \"{app_name}\" (não estava nos aplicativos permitidos — resolvi essa vez só, "
+            "não vou lembrar sozinha; adiciona em Configurações → Aplicativos se quiser)."
+        )
     )
 
     try:
@@ -172,6 +207,7 @@ def _start_main(app, settings):
         "chat_window": chat_window,
         "settings_window": settings_window,
         "tray": tray,
+        "confirmation_bridge": confirmation_bridge,
     }
 
 

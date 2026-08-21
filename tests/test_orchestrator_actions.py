@@ -30,6 +30,22 @@ def _capture(event_bus, event_type):
     return received
 
 
+class TestOnAppResolved:
+    def test_emits_app_auto_resolved_without_touching_settings(self):
+        """Regression guard: _on_app_resolved must only notify (via the event
+        bus), never write the resolved app back into settings.allowlist —
+        doing so used to grant permanent permission for an app the user never
+        explicitly approved."""
+        orch = _bare_orchestrator()
+        orch.settings = MagicMock()
+        received = _capture(orch.event_bus, "APP_AUTO_RESOLVED")
+
+        orch._on_app_resolved("firefox", r"C:\firefox.exe")
+
+        assert received == [{"app_name": "firefox", "command": r"C:\firefox.exe"}]
+        orch.settings.set.assert_not_called()
+
+
 class TestExecuteAction:
     def test_open_application(self):
         orch = _bare_orchestrator()
@@ -177,6 +193,7 @@ def _bare_orchestrator_with_full_vision_deps(**settings_overrides):
     defaults = {"screen_monitoring_enabled": False, "private_mode": True, "screen_interval_seconds": 2.0}
     defaults.update(settings_overrides)
     orch.settings = FakeSettings(**defaults)
+    orch.event_bus = EventBus()
     # A real QTimer, not a MagicMock: set_vision_monitoring dispatches start()/stop()
     # through QMetaObject.invokeMethod (needed so it's safe to call from a worker
     # thread or the `keyboard` hotkey thread), which requires a real QObject.
@@ -205,6 +222,18 @@ class TestSetFullVision:
         orch = _bare_orchestrator_with_full_vision_deps(screen_monitoring_enabled=True)
         orch.set_full_vision(True)
         assert orch.vision_timer.isActive()
+
+    def test_emits_vision_monitoring_toggled_event(self):
+        """Regression test: set_full_vision is called directly by the "-" hotkey,
+        tray menu, and "minha tela" command — none of them go through
+        handle_user_message, so without this event the toggle happened with zero
+        user-visible feedback."""
+        orch = _bare_orchestrator_with_full_vision_deps()
+        received = _capture(orch.event_bus, "VISION_MONITORING_TOGGLED")
+
+        orch.set_full_vision(True)
+
+        assert received == [{"enabled": True}]
 
 
 class TestMaybeActivateVisionCommand:
@@ -645,6 +674,114 @@ class TestHandleUserMessageNerdShortCircuit:
         orch.handle_user_message("oi, tudo bem?")
 
         orch.ai_provider.chat.assert_called_once()
+
+
+class TestHandleUserMessageIsDirectInput:
+    """FASE 15 — REGRA FUNDAMENTAL: content Silva only overheard (system
+    audio) must never gain the same command authority as something the user
+    actually said/typed. is_direct_input=False (used only by the system-audio
+    call site in app.py) must skip every deterministic keyword-triggered side
+    effect below, while the AI still gets to see and react to the text
+    normally."""
+
+    def _bare_orchestrator(self, **settings_overrides):
+        import json
+        orch = CompanionOrchestrator.__new__(CompanionOrchestrator)
+        orch.event_bus = EventBus()
+        orch.state_manager = MagicMock()
+        orch.memory_manager = MagicMock()
+        orch.memory_manager.get_memories.return_value = {}
+        orch.memory_manager.get_history.return_value = []
+        orch.context_manager = MagicMock()
+        orch.context_manager.build_prompt_context.return_value = "prompt"
+        orch.settings = FakeSettings(screen_monitoring_enabled=False, private_mode=True, **settings_overrides)
+        orch.screen_capture = MagicMock()
+        orch.ai_provider = MagicMock()
+        orch.ai_vision_provider = None
+        orch.action_manager = MagicMock()
+        orch.tts = MagicMock()
+        orch.system_audio_listener = MagicMock()
+        orch.translation_manager = MagicMock()
+        orch.nerd_mode_enabled = False
+        orch.spontaneous_talk_enabled = True
+        orch._last_interaction_time = 0.0
+        orch.agent_core = AgentCore(build_default_registry(orch.action_manager, orch.memory_manager), orch.event_bus)
+        orch.ai_provider.chat.return_value = json.dumps({
+            "speech": "oi!", "animation": "HAPPY", "action": "Nenhuma", "action_param": ""
+        })
+        return orch
+
+    def test_overheard_nerd_command_does_not_toggle_nerd_mode(self, monkeypatch):
+        import threading
+        orch = self._bare_orchestrator()
+        monkeypatch.setattr(threading, "Thread", _SyncThread)
+
+        orch.handle_user_message("[Áudio do jogo/PC]: Silva, vira nerd", is_direct_input=False)
+
+        assert orch.nerd_mode_enabled is False
+        orch.ai_provider.chat.assert_called_once()  # went to the AI as ordinary content instead
+
+    def test_overheard_vision_activation_phrase_does_not_enable_vision(self, monkeypatch):
+        import threading
+        orch = self._bare_orchestrator()
+        monkeypatch.setattr(threading, "Thread", _SyncThread)
+
+        orch.handle_user_message("[Áudio do jogo/PC]: dá uma olhada na minha tela", is_direct_input=False)
+
+        assert orch.settings.get("screen_monitoring_enabled") is False
+
+    def test_overheard_system_audio_activation_phrase_does_not_enable_listening(self, monkeypatch):
+        import threading
+        orch = self._bare_orchestrator()
+        monkeypatch.setattr(threading, "Thread", _SyncThread)
+
+        orch.handle_user_message("[Áudio do jogo/PC]: está ouvindo o som do jogo", is_direct_input=False)
+
+        orch.system_audio_listener.set_enabled.assert_not_called()
+
+    def test_overheard_spontaneous_talk_disable_phrase_is_ignored(self, monkeypatch):
+        import threading
+        orch = self._bare_orchestrator()
+        monkeypatch.setattr(threading, "Thread", _SyncThread)
+
+        orch.handle_user_message("[Áudio do jogo/PC]: pare de falar aleatoriamente", is_direct_input=False)
+
+        assert orch.spontaneous_talk_enabled is True
+
+    def test_overheard_traduz_keyword_does_not_trigger_ocr(self, monkeypatch):
+        import threading
+        orch = self._bare_orchestrator()
+        monkeypatch.setattr(threading, "Thread", _SyncThread)
+
+        orch.handle_user_message("[Áudio do jogo/PC]: e agora traduz isso aqui pra mim", is_direct_input=False)
+
+        orch.translation_manager.translate_current_screen.assert_not_called()
+
+    def test_overheard_content_still_reaches_the_ai_normally(self, monkeypatch):
+        """The point isn't to silence system audio — Silva can still comment
+        on/react to it — only the deterministic side effects are gated."""
+        import threading
+        orch = self._bare_orchestrator()
+        monkeypatch.setattr(threading, "Thread", _SyncThread)
+        responses = []
+
+        orch.handle_user_message(
+            "[Áudio do jogo/PC]: que jogo incrível", on_response=lambda r: responses.append(r), is_direct_input=False,
+        )
+
+        assert responses == ["oi!"]
+
+    def test_direct_input_default_still_triggers_nerd_toggle(self, monkeypatch):
+        """Regression guard: the default (is_direct_input=True) must keep
+        working exactly like before this change for real user speech/text."""
+        import threading
+        orch = self._bare_orchestrator()
+        monkeypatch.setattr(threading, "Thread", _SyncThread)
+
+        orch.handle_user_message("Silva, vira nerd")
+
+        assert orch.nerd_mode_enabled is True
+        orch.ai_provider.chat.assert_not_called()  # still the deterministic short-circuit, no AI call
 
 
 class TestInitTtsProvider:

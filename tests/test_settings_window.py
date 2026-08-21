@@ -1,6 +1,7 @@
 from unittest.mock import MagicMock, patch
 
 from src.config.settings import Settings
+from src.desktop.permission_policy import PermissionPolicyManager, PolicyDecision
 from src.desktop.permissions import PermissionManager
 from src.ui.settings_window import SettingsWindow
 
@@ -62,6 +63,32 @@ class TestAppAllowlistTab:
         window._remove_selected_app()  # should not raise
 
         assert window.allowlist == {"notepad": "notepad.exe"}
+
+    def test_removing_an_app_revokes_its_saved_policy(self, tmp_path):
+        """Regression test: an ALWAYS-approved open_application policy used to
+        outlive the app's removal from the allowlist — re-adding (or
+        auto-resolving) the same app name later would silently skip the
+        confirmation dialog again, re-granting access nothing re-approved."""
+        settings = _settings(tmp_path, allowlist={"chrome": "chrome.exe"})
+        policy_manager = PermissionPolicyManager(settings)
+        policy_manager.set_policy("open_application", "chrome", PolicyDecision.ALWAYS)
+        policy_manager.set_policy("close_application", "chrome", PolicyDecision.BLOCKED)
+        window = SettingsWindow(settings, policy_manager=policy_manager)
+
+        window.app_list.setCurrentRow(0)
+        window._remove_selected_app()
+
+        assert policy_manager.get_policy("open_application", "chrome") is None
+        assert policy_manager.get_policy("close_application", "chrome") is None
+
+    def test_removing_an_app_without_a_policy_manager_does_not_raise(self, tmp_path):
+        settings = _settings(tmp_path, allowlist={"chrome": "chrome.exe"})
+        window = SettingsWindow(settings, policy_manager=None)
+
+        window.app_list.setCurrentRow(0)
+        window._remove_selected_app()  # should not raise
+
+        assert window.allowlist == {}
 
 
 class TestSaveSyncsAllowlist:

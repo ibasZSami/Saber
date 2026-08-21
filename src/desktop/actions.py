@@ -7,21 +7,42 @@ from urllib.parse import quote_plus
 
 import psutil
 
+from src.desktop.app_resolver import resolve_app_path
 from src.desktop.permissions import PermissionManager
 
 class DesktopActionManager:
-    def __init__(self, permission_manager: PermissionManager):
+    def __init__(self, permission_manager: PermissionManager, on_app_resolved=None):
         self.permission_manager = permission_manager
+        # Called (name, command) when open_application resolves a brand-new app
+        # outside the allowlist, so a caller with access to the UI can tell the
+        # user about it. Deliberately NOT auto-persisted to the allowlist here
+        # (see permission_manager below) — the allowlist is the user's real
+        # permission boundary (also gates close_application), so a name Silva
+        # happened to resolve once shouldn't silently become permanent
+        # permission without the user explicitly adding it via Configurações →
+        # Aplicativos.
+        self.on_app_resolved = on_app_resolved
 
     def open_application(self, app_name: str) -> bool:
         app_name_clean = app_name.lower().strip()
-        if not self.permission_manager.is_app_allowed(app_name_clean):
-            logging.warning(f"Application '{app_name}' is not in the allowlist!")
-            return False
+        cmd = self.permission_manager.get_app_command(app_name_clean) if self.permission_manager.is_app_allowed(app_name_clean) else None
 
-        cmd = self.permission_manager.get_app_command(app_name_clean)
         if not cmd:
-            return False
+            # Not pre-approved — try to resolve it the way Windows itself would
+            # (App Paths registry, Start Menu shortcuts, PATH). Only ever
+            # launches a real path found on disk, never the raw name, so this
+            # can't become arbitrary command execution — see app_resolver.py.
+            # This resolution is one-off: it is NOT written to the allowlist,
+            # so it has to be re-resolved (and re-launched) each time it's
+            # asked for again, unless the user adds it permanently themselves.
+            resolved = resolve_app_path(app_name_clean)
+            if not resolved:
+                logging.warning(f"Application '{app_name}' is not in the allowlist and could not be resolved!")
+                return False
+            cmd = resolved
+            logging.info(f"Auto-resolved '{app_name}' -> {cmd} (not persisted to allowlist)")
+            if self.on_app_resolved:
+                self.on_app_resolved(app_name_clean, cmd)
 
         try:
             # shell=True runs the string through cmd.exe, which splits on the

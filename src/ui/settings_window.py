@@ -21,13 +21,18 @@ def _pitch_str_to_hz(pitch_str: str) -> int:
         return 0
 
 class SettingsWindow(QWidget):
-    def __init__(self, settings: Settings, permission_manager=None):
+    def __init__(self, settings: Settings, permission_manager=None, policy_manager=None):
         super().__init__()
         self.settings = settings
         # Lets a saved allowlist change take effect immediately — without this,
         # DesktopActionManager keeps using the snapshot PermissionManager took
         # at orchestrator startup until the app is restarted.
         self.permission_manager = permission_manager
+        # Needed so removing an app also revokes any ALWAYS/BLOCKED policy on
+        # it (see _remove_selected_app) — without this, an app removed from
+        # the allowlist could still carry a stale "always allow" grant that
+        # silently re-activates if the app is ever re-added or re-resolved.
+        self.policy_manager = policy_manager
         self.setWindowTitle("Configurações - Silva")
         self.resize(500, 450)
 
@@ -204,6 +209,13 @@ class SettingsWindow(QWidget):
             return
         name = item.data(Qt.UserRole)
         self.allowlist.pop(name, None)
+        if self.policy_manager:
+            # Otherwise a previously-granted ALWAYS (or BLOCKED) policy for
+            # this app outlives its removal from the allowlist — a stale
+            # "always allow" would silently re-activate the moment the app is
+            # re-added or auto-resolved again under the same name.
+            self.policy_manager.revoke("open_application", name)
+            self.policy_manager.revoke("close_application", name)
         self._refresh_app_list()
 
     def _save(self):
@@ -215,7 +227,7 @@ class SettingsWindow(QWidget):
         autostart.set_enabled(self.autostart_chk.isChecked())
         self.settings.set("nerd_mode_enabled", self.nerd_mode_chk.isChecked())
         self.settings.set("ai_provider", self.ai_combo.currentText())
-        self.settings.set("api_key", self.api_key_input.text().strip())
+        self.settings.set_api_key(self.api_key_input.text().strip())
         self.settings.set("ai_model", self.ai_model_input.text().strip())
         self.settings.set("ai_model_complex", self.ai_model_complex_input.text().strip())
         self.settings.set("microphone_enabled", self.mic_chk.isChecked())

@@ -3,6 +3,7 @@ from unittest.mock import MagicMock
 from src.core.agent_core import AgentCore
 from src.core.event_bus import EventBus
 from src.core.tool_registry import build_default_registry
+from src.desktop.permission_policy import PermissionPolicyManager, PolicyDecision
 
 
 def _capture(event_bus, event_type):
@@ -11,12 +12,16 @@ def _capture(event_bus, event_type):
     return received
 
 
-def _agent_core():
+def _agent_core(confirm_fn=None, policy_manager=None):
     action_manager = MagicMock()
     memory_manager = MagicMock()
     registry = build_default_registry(action_manager, memory_manager)
     event_bus = EventBus()
-    return AgentCore(registry, event_bus), action_manager, memory_manager
+    return (
+        AgentCore(registry, event_bus, confirm_fn=confirm_fn, policy_manager=policy_manager),
+        action_manager,
+        memory_manager,
+    )
 
 
 class TestAgentCoreExecute:
@@ -153,3 +158,220 @@ class TestAgentCoreEvents:
         agent.execute("remember", {"key": "cor_favorita", "value": "roxo"})
 
         assert auto_approved == []
+
+
+class TestAgentCoreRealConfirmation:
+    """FASE 1: when a real confirm_fn is wired, CONFIRM tools must ask BEFORE
+    running — not execute-then-flag like the confirm_fn=None fallback above.
+    confirm_fn returns a PolicyDecision (FASE 2), not a bare bool — ONCE/
+    SESSION/ALWAYS all approve running once; only DECLINED/BLOCKED deny."""
+
+    def test_approved_confirm_action_executes(self):
+        approvals = []
+
+        def confirm_fn(action, param, description):
+            approvals.append((action, param, description))
+            return PolicyDecision.ONCE
+
+        agent, action_manager, _ = _agent_core(confirm_fn=confirm_fn)
+        action_manager.open_application.return_value = True
+
+        handled = agent.execute("open_application", "chrome")
+
+        assert handled is True
+        action_manager.open_application.assert_called_once_with("chrome")
+        assert approvals == [("open_application", "chrome", 'Silva quer abrir o aplicativo "chrome".')]
+
+    def test_denied_confirm_action_never_dispatches(self):
+        agent, action_manager, _ = _agent_core(confirm_fn=lambda action, param, description: PolicyDecision.DECLINED)
+
+        handled = agent.execute("open_application", "chrome")
+
+        assert handled is False
+        action_manager.open_application.assert_not_called()
+
+    def test_denial_emits_permission_denied_and_action_rejected_not_executed(self):
+        agent, action_manager, _ = _agent_core(confirm_fn=lambda action, param, description: PolicyDecision.DECLINED)
+        requested = _capture(agent.event_bus, "PERMISSION_REQUESTED")
+        denied = _capture(agent.event_bus, "PERMISSION_DENIED")
+        rejected = _capture(agent.event_bus, "ACTION_REJECTED")
+        executed = _capture(agent.event_bus, "ACTION_EXECUTED")
+        auto_approved = _capture(agent.event_bus, "ACTION_CONFIRM_AUTO_APPROVED")
+
+        agent.execute("open_application", "chrome")
+
+        assert len(requested) == 1 and requested[0]["action"] == "open_application"
+        assert denied == [{"action": "open_application", "action_param": "chrome"}]
+        assert len(rejected) == 1
+        assert executed == []
+        assert auto_approved == []  # a real confirm_fn is wired — never the legacy fallback event
+
+    def test_approval_emits_permission_granted_then_executed(self):
+        agent, action_manager, _ = _agent_core(confirm_fn=lambda action, param, description: PolicyDecision.ONCE)
+        action_manager.open_application.return_value = True
+        granted = _capture(agent.event_bus, "PERMISSION_GRANTED")
+        executed = _capture(agent.event_bus, "ACTION_EXECUTED")
+
+        agent.execute("open_application", "chrome")
+
+        assert granted == [{"action": "open_application", "action_param": "chrome"}]
+        assert len(executed) == 1
+
+    def test_safe_tier_never_calls_confirm_fn(self):
+        confirm_fn = MagicMock(return_value=PolicyDecision.ONCE)
+        agent, _, memory_manager = _agent_core(confirm_fn=confirm_fn)
+
+        agent.execute("remember", {"key": "cor_favorita", "value": "roxo"})
+
+        confirm_fn.assert_not_called()
+
+    def test_dangerous_tier_still_rejected_without_calling_confirm_fn(self):
+        """DANGEROUS has no tool using it yet, but the tier itself must stay
+        fail-closed even with a confirm_fn wired — it is not a CONFIRM tool."""
+        from src.core.tool_registry import ToolSpec, PermissionTier
+
+        confirm_fn = MagicMock(return_value=PolicyDecision.ONCE)
+        agent, action_manager, _ = _agent_core(confirm_fn=confirm_fn)
+        agent.registry.register(ToolSpec(
+            name="format_disk", tier=PermissionTier.DANGEROUS,
+            description="test-only", dispatch=lambda p: True,
+        ))
+
+        handled = agent.execute("format_disk", None)
+
+        assert handled is False
+        confirm_fn.assert_not_called()
+
+
+class TestAgentCorePolicyManager:
+    """FASE 2: once/session/always/blocked — a policy_manager lets a
+    previous decision skip the dialog entirely (granted or blocked), and
+    ONCE/DECLINED never get remembered."""
+
+    def test_blocked_target_denies_without_calling_confirm_fn(self):
+        policy = PermissionPolicyManager()
+        policy.set_policy("open_application", "chrome", PolicyDecision.BLOCKED)
+        confirm_fn = MagicMock()
+        agent, action_manager, _ = _agent_core(confirm_fn=confirm_fn, policy_manager=policy)
+
+        handled = agent.execute("open_application", "chrome")
+
+        assert handled is False
+        confirm_fn.assert_not_called()
+        action_manager.open_application.assert_not_called()
+
+    def test_blocked_target_emits_permission_denied(self):
+        policy = PermissionPolicyManager()
+        policy.set_policy("open_application", "chrome", PolicyDecision.BLOCKED)
+        agent, _, _ = _agent_core(confirm_fn=MagicMock(), policy_manager=policy)
+        denied = _capture(agent.event_bus, "PERMISSION_DENIED")
+        requested = _capture(agent.event_bus, "PERMISSION_REQUESTED")
+
+        agent.execute("open_application", "chrome")
+
+        assert len(denied) == 1
+        assert requested == []  # blocked short-circuits before ever asking
+
+    def test_always_granted_target_executes_without_calling_confirm_fn(self):
+        policy = PermissionPolicyManager()
+        policy.set_policy("open_application", "chrome", PolicyDecision.ALWAYS)
+        confirm_fn = MagicMock()
+        agent, action_manager, _ = _agent_core(confirm_fn=confirm_fn, policy_manager=policy)
+        action_manager.open_application.return_value = True
+
+        handled = agent.execute("open_application", "chrome")
+
+        assert handled is True
+        confirm_fn.assert_not_called()
+        action_manager.open_application.assert_called_once_with("chrome")
+
+    def test_choosing_always_persists_and_skips_the_dialog_next_time(self):
+        policy = PermissionPolicyManager()
+        confirm_fn = MagicMock(return_value=PolicyDecision.ALWAYS)
+        agent, action_manager, _ = _agent_core(confirm_fn=confirm_fn, policy_manager=policy)
+        action_manager.open_application.return_value = True
+
+        agent.execute("open_application", "chrome")  # asks, user picks "sempre"
+        agent.execute("open_application", "chrome")  # must not ask again
+
+        assert confirm_fn.call_count == 1
+        assert action_manager.open_application.call_count == 2
+
+    def test_choosing_session_persists_for_this_run_only(self):
+        policy = PermissionPolicyManager()
+        confirm_fn = MagicMock(return_value=PolicyDecision.SESSION)
+        agent, action_manager, _ = _agent_core(confirm_fn=confirm_fn, policy_manager=policy)
+        action_manager.open_application.return_value = True
+
+        agent.execute("open_application", "chrome")
+        agent.execute("open_application", "chrome")
+
+        assert confirm_fn.call_count == 1  # second call reused the session grant
+        assert policy.get_policy("open_application", "chrome") == PolicyDecision.SESSION
+
+    def test_choosing_once_asks_again_next_time(self):
+        policy = PermissionPolicyManager()
+        confirm_fn = MagicMock(return_value=PolicyDecision.ONCE)
+        agent, action_manager, _ = _agent_core(confirm_fn=confirm_fn, policy_manager=policy)
+        action_manager.open_application.return_value = True
+
+        agent.execute("open_application", "chrome")
+        agent.execute("open_application", "chrome")
+
+        assert confirm_fn.call_count == 2  # "once" is never remembered
+
+    def test_declined_is_never_persisted(self):
+        policy = PermissionPolicyManager()
+        confirm_fn = MagicMock(return_value=PolicyDecision.DECLINED)
+        agent, _, _ = _agent_core(confirm_fn=confirm_fn, policy_manager=policy)
+
+        agent.execute("open_application", "chrome")
+
+        assert policy.get_policy("open_application", "chrome") is None
+
+    def test_revoke_makes_it_ask_again(self):
+        policy = PermissionPolicyManager()
+        policy.set_policy("open_application", "chrome", PolicyDecision.ALWAYS)
+        confirm_fn = MagicMock(return_value=PolicyDecision.ONCE)
+        agent, action_manager, _ = _agent_core(confirm_fn=confirm_fn, policy_manager=policy)
+        action_manager.open_application.return_value = True
+
+        policy.revoke("open_application", "chrome")
+        agent.execute("open_application", "chrome")
+
+        confirm_fn.assert_called_once()
+
+    def test_policy_target_uses_application_key_for_dict_params(self):
+        """set_app_volume's action_param is a dict — the policy must key on
+        the app name inside it, not the whole dict/None."""
+        policy = PermissionPolicyManager()
+        policy.set_policy("set_app_volume", "spotify", PolicyDecision.BLOCKED)
+        confirm_fn = MagicMock()
+        agent, _, _ = _agent_core(confirm_fn=confirm_fn, policy_manager=policy)
+
+        handled = agent.execute("set_app_volume", {"application": "spotify", "level": 50})
+
+        assert handled is False
+        confirm_fn.assert_not_called()
+
+    def test_policy_target_is_case_insensitive(self):
+        policy = PermissionPolicyManager()
+        policy.set_policy("open_application", "chrome", PolicyDecision.ALWAYS)
+        confirm_fn = MagicMock()
+        agent, action_manager, _ = _agent_core(confirm_fn=confirm_fn, policy_manager=policy)
+        action_manager.open_application.return_value = True
+
+        handled = agent.execute("open_application", "  Chrome  ")
+
+        assert handled is True
+        confirm_fn.assert_not_called()
+
+    def test_without_policy_manager_behaves_like_fase_1_always_asking(self):
+        confirm_fn = MagicMock(return_value=PolicyDecision.ALWAYS)
+        agent, action_manager, _ = _agent_core(confirm_fn=confirm_fn, policy_manager=None)
+        action_manager.open_application.return_value = True
+
+        agent.execute("open_application", "chrome")
+        agent.execute("open_application", "chrome")
+
+        assert confirm_fn.call_count == 2  # nothing to remember without a policy_manager

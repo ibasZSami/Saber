@@ -66,7 +66,11 @@ _TOOL_DEFS = [
     {
         "name": "open_application",
         "tier": PermissionTier.CONFIRM,
-        "description": "Abre um aplicativo configurado na allowlist (ex: chrome, discord, vscode).",
+        "description": (
+            "Abre um aplicativo pelo nome (ex: chrome, discord, vscode, firefox, spotify). "
+            "Não precisa estar pré-cadastrado — se não estiver na allowlist, tenta resolver "
+            "automaticamente qualquer app já instalado no Windows."
+        ),
         "parameters": {"application": "string"},
     },
     {
@@ -129,41 +133,53 @@ def describe_tools() -> List[Dict[str, Any]]:
     return registry.as_tools_schema()
 
 
+# A malformed/hallucinated AI response could hand any JSON-decodable shape
+# (a dict, a list, a number, True/False) as action_param instead of the
+# string these tools expect — `dict.lower()`/similar calls further down the
+# chain (DesktopActionManager, sqlite params) raise on the wrong type instead
+# of failing cleanly. Checking the type here, not just truthiness, turns that
+# into an ordinary "not handled" instead of an uncaught exception escaping
+# the dispatch call.
+
+
 def _open_application(action_manager, action_param) -> bool:
-    if not action_param:
+    if not isinstance(action_param, str) or not action_param.strip():
         return False
     return bool(action_manager.open_application(action_param))
 
 
 def _close_application(action_manager, action_param) -> bool:
-    if not action_param:
+    if not isinstance(action_param, str) or not action_param.strip():
         return False
     return bool(action_manager.close_application(action_param))
 
 
 def _open_url(action_manager, action_param) -> bool:
-    if not action_param:
+    if not isinstance(action_param, str) or not action_param.strip():
         return False
     return bool(action_manager.open_url(action_param))
 
 
 def _search_web(action_manager, action_param) -> bool:
-    if not action_param:
+    if not isinstance(action_param, str) or not action_param.strip():
         return False
     return bool(action_manager.search_web(action_param))
 
 
 def _remember(memory_manager, action_param) -> bool:
-    if isinstance(action_param, dict) and action_param.get("key"):
-        memory_manager.remember(action_param["key"], action_param.get("value", ""))
-        return True
-    return False
+    if not isinstance(action_param, dict):
+        return False
+    key = action_param.get("key")
+    if not isinstance(key, str) or not key.strip():
+        return False
+    memory_manager.remember(key, action_param.get("value", ""))
+    return True
 
 
 def _forget_memory(memory_manager, action_param) -> bool:
-    if not action_param:
-        return False
     key = action_param.get("key") if isinstance(action_param, dict) else action_param
+    if not isinstance(key, str) or not key.strip():
+        return False
     memory_manager.forget(key)
     return True
 
@@ -173,12 +189,17 @@ def _set_app_volume(audio_mixer_manager, action_param) -> bool:
         return False
     app = action_param.get("application")
     level = action_param.get("level")
-    if not app or level is None:
+    if not isinstance(app, str) or not app.strip() or level is None:
         return False
     try:
         level = float(level)
     except (TypeError, ValueError):
         return False
+    # Clamp rather than reject out-of-range values — an AI-hallucinated
+    # level of 500 (or a negative one) must not reach the OS mixer as-is;
+    # pycaw's SetVolumeScalar has no defined behavior for a scalar outside
+    # [0.0, 1.0].
+    level = max(0.0, min(100.0, level))
     return bool(audio_mixer_manager.set_volume(app, level / 100.0))
 
 
