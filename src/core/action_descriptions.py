@@ -50,6 +50,9 @@ def describe_action(action: str, action_param) -> str:
             text = action_param.get("text", "")
             return f'Silva quer digitar "{text}" em "{target}" na página aberta.'
         return "Silva quer digitar algo na página aberta."
+    if action == "index_folder":
+        path = action_param.get("path", "?") if isinstance(action_param, dict) else str(action_param)
+        return f'Silva quer ler os arquivos de texto/código desta pasta pra poder buscar neles depois:\n{path}'
     # Fallback for any future CONFIRM-tier tool that doesn't get bespoke copy
     # here yet — still informative, never blank.
     return f'Silva quer executar a ação "{action}" ({action_param!r}).'

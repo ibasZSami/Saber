@@ -233,10 +233,10 @@ aqui. Só se aplica ao caminho de mensagem real (`handle_user_message`) — o
 comentário espontâneo continua usando o conjunto completo, já que não tem
 uma mensagem específica pra comparar relevância.
 
-**RAG local (documentos/código)**: mencionado no roadmap original como
-preparação futura — deliberadamente **não implementado** nesta passada.
-Merece um design próprio (indexação, chunking, estratégia de busca) em vez
-de ser espremido numa mudança que já tinha outro foco.
+RAG local (documentos/código) acabou ganhando seu próprio design — ver seção
+"RAG local" mais abaixo — em vez de reusar esse mesmo filtro de relevância:
+memórias são um punhado de fatos curtos, documentos/código são texto longo
+que precisa de chunking e uma estratégia de busca diferente.
 
 - `Scheduler` (`src/core/scheduler.py`) + `reminder_parser.py`: lembretes/
   timers ("me lembra em 30 minutos", "às 18h me avisa", recorrência diária),
@@ -367,6 +367,50 @@ cada instalação parte de config limpo em vez de herdar caminhos absolutos da
 máquina onde o build foi gerado. Tesseract-OCR e o Chromium do Playwright
 continuam instalados à parte (não são pacotes pip, entram centenas de MB
 para uma minoria dos usuários) — mesmo tradeoff que `install.bat` já fazia.
+
+## RAG local
+
+`src/memory/rag_index.py` (`RAGIndex`) — busca offline em documentos/código
+de uma pasta, **desligada por padrão** (`rag_enabled`), mesmo padrão de
+gating "sem instância real, sem dispatch" das outras ferramentas de maior
+risco: `RAGIndex()` só é construída no `__init__` do orchestrator se o
+switch estiver ligado, e `index_folder`/`search_documents` ficam com
+`dispatch=None` (genuinely ausentes do que a IA sabe que existe) até lá.
+
+**BM25, não embeddings**: escolha deliberada — nada de baixar um modelo de
+embeddings, sem GPU, sem custo por chamada de API, sem falar com a rede.
+`rank-bm25` é uma dependência pura-Python de ~10KB. O preço é semântico:
+busca por palavra-chave (com stemming/sinônimo nenhum), não por significado
+— "onde fica a autenticação" não acha um trecho que só fala em "login" se
+nenhuma das duas palavras aparecer literalmente. Suficiente pra "achar o
+arquivo/trecho que menciona X" numa pasta pessoal ou repositório
+pequeno/médio; não é um motor de busca semântica.
+
+**Gate de relevância é overlap de token, não `score > 0`**: a fórmula
+clássica de idf do BM25 (`log((N-freq+0.5)/(freq+0.5))`) dá exatamente zero
+sempre que um termo aparece em cerca de metade dos chunks indexados — comum
+em índices pequenos (poucos arquivos), o caso de uso real esperado aqui.
+Filtrar por `score > 0` descartaria silenciosamente o único trecho relevante
+nesse caso. `RAGIndex.search()` em vez disso só exige que pelo menos um
+token da busca apareça literalmente no chunk, e usa o score do BM25 só pra
+ordenar entre os que já passaram nesse filtro.
+
+**Sem persistência**: o índice vive só em memória, reconstruído do zero a
+cada `index_folder` — sem cache em disco, sem re-indexação incremental, sem
+observar mudanças de arquivo. Se o conteúdo muda, o usuário reindexa.
+Simplificação deliberada pra uma primeira versão; um índice persistente
+precisaria de estratégia própria de invalidação (o arquivo mudou desde a
+última vez? foi apagado?) — não vale a complexidade ainda.
+
+**Limites de segurança embutidos** (`src/memory/rag_index.py`): só
+extensões de texto/código reconhecidas são lidas (nunca binários,
+imagens, ou `.env`); pastas conhecidas por serem ruído/gigantes
+(`.git`, `node_modules`, `venv`, `dist`, `build`, ...) nunca são
+percorridas; um arquivo maior que 2MB é pulado; e um teto de 2000 arquivos
+por chamada de `index_folder` evita que indexar uma árvore gigante trave o
+app. `index_folder` é `CONFIRM` (lê arquivos de verdade do disco que o
+usuário não escolheu individualmente); `search_documents` é `SAFE`
+(read-only sobre um índice que já exigiu confirmação pra existir).
 
 ## Observabilidade local
 

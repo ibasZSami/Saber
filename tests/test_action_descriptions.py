@@ -60,6 +60,10 @@ class TestDescribeAction:
         assert "#search" in text
         assert "gatos" in text
 
+    def test_index_folder(self):
+        text = describe_action("index_folder", {"path": r"C:\Users\usuario\Documentos"})
+        assert r"C:\Users\usuario\Documentos" in text
+
     def test_unknown_action_falls_back_to_generic_text(self):
         text = describe_action("fly_to_moon", "now")
         assert "fly_to_moon" in text

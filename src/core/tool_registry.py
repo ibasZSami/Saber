@@ -1,3 +1,4 @@
+import os
 import time
 from dataclasses import dataclass
 from enum import Enum
@@ -197,6 +198,24 @@ _TOOL_DEFS = [
         "name": "browser_read",
         "tier": PermissionTier.SAFE,
         "description": "Lê o texto visível da página atualmente aberta no navegador controlado — use pra ver o resultado de uma navegação/clique antes do próximo passo.",
+    },
+    {
+        "name": "index_folder",
+        "tier": PermissionTier.CONFIRM,
+        "description": (
+            "Indexa uma pasta (documentos ou código) pra depois buscar dentro dela com "
+            "search_documents. Lê só arquivos de texto/código reconhecidos, ignora .git/node_modules/venv."
+        ),
+        "parameters": {"path": "string (caminho da pasta)"},
+    },
+    {
+        "name": "search_documents",
+        "tier": PermissionTier.SAFE,
+        "description": (
+            "Busca por um termo nos documentos/código já indexados (via index_folder) — retorna os "
+            "trechos mais relevantes com arquivo e linha."
+        ),
+        "parameters": {"query": "string"},
     },
 ]
 
@@ -424,6 +443,35 @@ def _browser_read(browser_controller, action_param):
     return True, text
 
 
+def _index_folder(rag_index, action_param):
+    path = action_param.get("path") if isinstance(action_param, dict) else action_param
+    if not isinstance(path, str) or not path.strip():
+        return False, None
+    path = path.strip()
+    if not os.path.isdir(path):
+        return False, f'Pasta não encontrada: "{path}".'
+    try:
+        count = rag_index.index_directory(path)
+    except OSError as e:
+        return False, str(e)
+    if count == 0:
+        return False, "Nenhum arquivo de texto/código reconhecido encontrado nessa pasta."
+    return True, f'Indexei {count} trecho(s) de {len(rag_index.indexed_files)} arquivo(s) em "{path}".'
+
+
+def _search_documents(rag_index, action_param):
+    query = action_param.get("query") if isinstance(action_param, dict) else action_param
+    if not isinstance(query, str) or not query.strip():
+        return False, None
+    if rag_index.chunk_count == 0:
+        return False, "Nada foi indexado ainda — use index_folder numa pasta primeiro."
+    results = rag_index.search(query.strip())
+    if not results:
+        return False, "Nenhum trecho relevante encontrado pra essa busca."
+    parts = [f"[{chunk.doc_path}:{chunk.start_line}-{chunk.end_line}]\n{chunk.text}" for chunk, _score in results]
+    return True, "\n\n".join(parts)
+
+
 # Tool names with a real dispatch handler — translate_screen is
 # deliberately absent (see _TOOL_DEFS' comment above).
 _DISPATCH_BUILDERS = {
@@ -447,6 +495,8 @@ _DISPATCH_BUILDERS = {
     "browser_click": lambda m: (lambda p: _browser_click(m["browser_controller"], p)),
     "browser_type": lambda m: (lambda p: _browser_type(m["browser_controller"], p)),
     "browser_read": lambda m: (lambda p: _browser_read(m["browser_controller"], p)),
+    "index_folder": lambda m: (lambda p: _index_folder(m["rag_index"], p)),
+    "search_documents": lambda m: (lambda p: _search_documents(m["rag_index"], p)),
 }
 
 
@@ -463,6 +513,7 @@ def build_default_registry(
     ocr_provider=None,
     translation_mode=None,
     browser_controller=None,
+    rag_index=None,
 ) -> ToolRegistry:
     """Registers every tool from _TOOL_DEFS, binding a real dispatch handler for
     the ones that have one. Each dispatch guard reproduces the original
@@ -489,7 +540,9 @@ def build_default_registry(
     real dispatch; translation_mode enables activate_translation_mode's — see
     FASE 8. browser_controller gates browser_navigate/click/type/read the
     same "no real instance, no dispatch" way — Playwright/Chromium is a
-    heavy, opt-in dependency (see docs/ARCHITECTURE.md)."""
+    heavy, opt-in dependency (see docs/ARCHITECTURE.md). rag_index gates
+    index_folder/search_documents identically — reads arbitrary files from
+    disk, off by default (see src/memory/rag_index.py)."""
     if audio_mixer_manager is None:
         from src.desktop.audio_mixer import AudioMixerManager
         audio_mixer_manager = AudioMixerManager()
@@ -506,6 +559,7 @@ def build_default_registry(
         "ocr_provider": ocr_provider,
         "translation_mode": translation_mode,
         "browser_controller": browser_controller,
+        "rag_index": rag_index,
     }
     registry = ToolRegistry()
     for tool_def in _TOOL_DEFS:
@@ -524,9 +578,10 @@ def build_default_registry(
         browser_deps_missing = name in (
             "browser_navigate", "browser_click", "browser_type", "browser_read",
         ) and browser_controller is None
+        rag_deps_missing = name in ("index_folder", "search_documents") and rag_index is None
         deps_missing = (
             research_deps_missing or reminder_deps_missing or input_deps_missing or terminal_deps_missing
-            or observe_deps_missing or translation_mode_deps_missing or browser_deps_missing
+            or observe_deps_missing or translation_mode_deps_missing or browser_deps_missing or rag_deps_missing
         )
         dispatch = build_dispatch(managers) if build_dispatch and not deps_missing else None
         registry.register(ToolSpec(

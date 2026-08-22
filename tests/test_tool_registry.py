@@ -575,6 +575,88 @@ class TestBrowserDispatch:
             assert registry.get(name).dispatch is None
 
 
+class TestRagDispatch:
+    def _registry(self):
+        action_manager, memory_manager = MagicMock(), MagicMock()
+        rag_index = MagicMock()
+        registry = build_default_registry(action_manager, memory_manager, rag_index=rag_index)
+        return registry, rag_index
+
+    def test_index_folder_calls_rag_index(self, tmp_path):
+        registry, rag_index = self._registry()
+        rag_index.index_directory.return_value = 3
+        rag_index.indexed_files = ["a.py", "b.py"]
+
+        result = registry.get("index_folder").dispatch({"path": str(tmp_path)})
+
+        assert result == (True, f'Indexei 3 trecho(s) de 2 arquivo(s) em "{tmp_path}".')
+        rag_index.index_directory.assert_called_once_with(str(tmp_path))
+
+    def test_index_folder_accepts_bare_string_param(self, tmp_path):
+        registry, rag_index = self._registry()
+        rag_index.index_directory.return_value = 1
+        rag_index.indexed_files = ["a.py"]
+        registry.get("index_folder").dispatch(str(tmp_path))
+        rag_index.index_directory.assert_called_once_with(str(tmp_path))
+
+    def test_index_folder_rejects_empty_path(self):
+        registry, rag_index = self._registry()
+        result = registry.get("index_folder").dispatch({"path": ""})
+        assert result == (False, None)
+        rag_index.index_directory.assert_not_called()
+
+    def test_index_folder_rejects_nonexistent_path(self):
+        registry, rag_index = self._registry()
+        result = registry.get("index_folder").dispatch({"path": "C:\\does\\not\\exist\\at\\all"})
+        assert result[0] is False
+        rag_index.index_directory.assert_not_called()
+
+    def test_index_folder_reports_zero_chunks_as_failure(self, tmp_path):
+        registry, rag_index = self._registry()
+        rag_index.index_directory.return_value = 0
+        result = registry.get("index_folder").dispatch({"path": str(tmp_path)})
+        assert result[0] is False
+
+    def test_search_documents_returns_formatted_chunks(self):
+        registry, rag_index = self._registry()
+        rag_index.chunk_count = 5
+        chunk = MagicMock(doc_path="a.py", start_line=1, end_line=10, text="def login(): ...")
+        rag_index.search.return_value = [(chunk, 1.23)]
+
+        result = registry.get("search_documents").dispatch({"query": "login"})
+
+        assert result[0] is True
+        assert "a.py:1-10" in result[1]
+        assert "def login(): ..." in result[1]
+        rag_index.search.assert_called_once_with("login")
+
+    def test_search_documents_rejects_empty_query(self):
+        registry, rag_index = self._registry()
+        result = registry.get("search_documents").dispatch({"query": ""})
+        assert result == (False, None)
+        rag_index.search.assert_not_called()
+
+    def test_search_documents_when_nothing_indexed(self):
+        registry, rag_index = self._registry()
+        rag_index.chunk_count = 0
+        result = registry.get("search_documents").dispatch({"query": "login"})
+        assert result[0] is False
+        rag_index.search.assert_not_called()
+
+    def test_search_documents_no_relevant_results(self):
+        registry, rag_index = self._registry()
+        rag_index.chunk_count = 5
+        rag_index.search.return_value = []
+        result = registry.get("search_documents").dispatch({"query": "xyzzy"})
+        assert result[0] is False
+
+    def test_no_dispatch_when_rag_index_not_provided(self):
+        action_manager, memory_manager = MagicMock(), MagicMock()
+        registry = build_default_registry(action_manager, memory_manager)
+        assert registry.get("index_folder").dispatch is None
+        assert registry.get("search_documents").dispatch is None
+
+
 class TestAsToolsSchemaDispatchableOnly:
     def test_excludes_tools_without_a_dispatch_handler(self):
         action_manager, memory_manager = MagicMock(), MagicMock()
@@ -623,6 +705,7 @@ class TestDescribeTools:
             "open_url", "search_web", "remember", "forget_memory", "set_app_volume", "research_topic",
             "create_reminder", "mouse_click", "mouse_move", "type_text", "press_key", "run_terminal_tool",
             "activate_translation_mode", "browser_navigate", "browser_click", "browser_type", "browser_read",
+            "index_folder", "search_documents",
         }
         assert all("description" in entry for entry in schema)
 

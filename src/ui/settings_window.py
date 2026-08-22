@@ -239,10 +239,17 @@ class SettingsWindow(QWidget):
         self.plugins_chk.setToolTip(
             "Só ative se confiar na origem dos arquivos em plugins/. Requer reiniciar a Silva."
         )
+        self.rag_chk = QCheckBox("Permitir busca local em documentos/código (index_folder/search_documents)")
+        self.rag_chk.setChecked(self.settings.get("rag_enabled", False))
+        self.rag_chk.setToolTip(
+            "Lê arquivos de texto/código de uma pasta que você indicar, pra depois buscar neles — "
+            "sempre pede confirmação antes de indexar. Requer reiniciar a Silva."
+        )
         agent_layout.addWidget(self.input_control_chk)
         agent_layout.addWidget(self.terminal_tool_chk)
         agent_layout.addWidget(self.browser_control_chk)
         agent_layout.addWidget(self.plugins_chk)
+        agent_layout.addWidget(self.rag_chk)
 
         agent_layout.addWidget(QLabel(
             "Programas que a Silva pode rodar no terminal (nada fora desta lista\n"
@@ -450,6 +457,7 @@ class SettingsWindow(QWidget):
             self.terminal_tool_manager.allowlist.update(self.terminal_allowlist)
         self.settings.set("browser_control_enabled", self.browser_control_chk.isChecked())
         self.settings.set("plugins_enabled", self.plugins_chk.isChecked())
+        self.settings.set("rag_enabled", self.rag_chk.isChecked())
         self.close()
 
     def _update_mode_tooltip(self, label: str):

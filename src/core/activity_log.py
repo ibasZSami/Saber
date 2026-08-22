@@ -53,6 +53,12 @@ def _describe_action_result(action, action_param, rejected: bool) -> str:
         return f'{"Não abriu" if rejected else "Abriu"} "{url}" no navegador controlado.'
     if action in ("browser_click", "browser_type"):
         return f'{"Não controlou" if rejected else "Controlou"} o navegador ({action}).'
+    if action == "index_folder":
+        path = action_param.get("path", "?") if isinstance(action_param, dict) else action_param
+        return f'{"Não indexou" if rejected else "Indexou"} a pasta "{path}".'
+    if action == "search_documents":
+        query = action_param.get("query", "?") if isinstance(action_param, dict) else action_param
+        return f'{"Não encontrou nada pra" if rejected else "Buscou nos documentos por"} "{query}".'
     return f'{"Não executou" if rejected else "Executou"} a ação "{action}".'
 
 

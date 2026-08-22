@@ -51,6 +51,18 @@ class TestActionEvents:
         bus.emit("ACTION_EXECUTED", action="browser_click", action_param={"target": "Comprar"})
         assert "browser_click" in log.entries()[-1].text
 
+    def test_index_folder_is_logged_with_the_path(self):
+        bus = _bus()
+        log = ActivityLog(bus)
+        bus.emit("ACTION_EXECUTED", action="index_folder", action_param={"path": "C:\\projeto"})
+        assert '"C:\\projeto"' in log.entries()[-1].text
+
+    def test_search_documents_is_logged_with_the_query(self):
+        bus = _bus()
+        log = ActivityLog(bus)
+        bus.emit("ACTION_EXECUTED", action="search_documents", action_param={"query": "login"})
+        assert '"login"' in log.entries()[-1].text
+
     def test_run_terminal_tool_is_logged_with_the_binary_name(self):
         bus = _bus()
         log = ActivityLog(bus)

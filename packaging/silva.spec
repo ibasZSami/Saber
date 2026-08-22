@@ -61,6 +61,7 @@ a = Analysis(
         "pycaw",
         "comtypes",
         "keyboard",
+        "rank_bm25",
     ],
     hookspath=[],
     hooksconfig={},

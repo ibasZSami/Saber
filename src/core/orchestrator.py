@@ -27,6 +27,7 @@ from src.core.agent_engine import AgentEngine
 from src.desktop.input_control import InputController
 from src.desktop.terminal_tool import TerminalToolManager
 from src.desktop.browser_control import BrowserController
+from src.memory.rag_index import RAGIndex
 from src.core.plugin_system import PluginManager
 from src.core.translation_mode import TranslationMode, TranslationModeState
 from src.vision.translation_engine import TranslationEngine
@@ -338,6 +339,11 @@ class CompanionOrchestrator:
         self.browser_controller = (
             BrowserController() if self.settings.get("browser_control_enabled", False) else None
         )
+        # Local RAG (documents/code search) — same gating, cheap to construct
+        # (no model download, no index built until index_folder actually
+        # runs), but still off by default: it reads arbitrary files from
+        # disk once enabled. See src/memory/rag_index.py.
+        self.rag_index = RAGIndex() if self.settings.get("rag_enabled", False) else None
 
         # Tool dispatch (SAFE/CONFIRM/DANGEROUS tiers) — see src/core/tool_registry.py
         # and src/core/agent_core.py for the FASE 2 Agent Core extraction.
@@ -346,7 +352,7 @@ class CompanionOrchestrator:
             self.background_task_manager, self.research_manager, self.scheduler,
             self.input_controller, self.terminal_tool_manager,
             self.screen_capture, self.translation_manager.ocr, self.translation_mode,
-            self.browser_controller,
+            self.browser_controller, rag_index=self.rag_index,
         )
         self.agent_core = AgentCore(
             self.tool_registry, self.event_bus, confirm_fn=self.confirm_fn, policy_manager=self.policy_manager,

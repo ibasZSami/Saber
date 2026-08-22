@@ -126,6 +126,12 @@ Toda ação passa por um `ToolRegistry` central com tier de permissão (`SAFE` /
   confirmação de qualquer ferramenta nativa. Não é sandbox — só ative se confiar na origem dos
   arquivos. Vem com um exemplo funcional (`plugins/example_dice.py`, rola um dado) e um guia
   completo em `plugins/README.md`.
+- **RAG local** (`index_folder`/`search_documents`, **desligado por padrão**) — busca por
+  palavra-chave (BM25, offline, sem download de modelo nem API) em documentos/código de uma pasta.
+  `index_folder` (sempre pede confirmação — lê arquivos de verdade do disco) indexa uma pasta;
+  `search_documents` busca nela depois e retorna os trechos mais relevantes com arquivo e linha.
+  Sem persistência entre execuções — reindexar do zero a cada sessão é a troca deliberada por
+  simplicidade nesta primeira versão.
 
 `CONFIRM` hoje pede confirmação de verdade (diálogo real, com opção de sempre permitir/sempre
 bloquear/só essa vez) antes de executar. `DANGEROUS` existe como tier reservado; nenhuma ação usa
@@ -224,7 +230,7 @@ voz e permissões iniciais.
 pytest tests/ --cov=src --cov-report=term-missing
 ```
 
-1033 testes (92% de cobertura) cobrindo orquestrador, ferramentas/permissões, Agent Engine (task
+1061 testes (92% de cobertura) cobrindo orquestrador, ferramentas/permissões, Agent Engine (task
 loop), mouse/teclado, terminal controlado, navegador controlado, plugins, OCR estruturado,
 Translation Engine, overlay, Modo Tradução, voz, visão contínua, memória, lembretes/scheduler,
 notícias, mixer de som, autostart,
@@ -236,14 +242,12 @@ Documentação técnica (arquitetura, segurança, padrões de teste) em [`docs/`
 
 ---
 
-## 🗺️ Roadmap — o que falta
+## 🗺️ Roadmap
 
-Silva está evoluindo de "conjunto de features" pra uma arquitetura de **Local AI Desktop Agent**
+Silva evoluiu de "conjunto de features" pra uma arquitetura de **Local AI Desktop Agent**
 (Agent Core, Tool Registry, Scheduler, Visão Contínua, Emotion Engine, Agent Engine com loop
 multi-passo (com gatilho de chat), controle de mouse/teclado, terminal controlado, Modo Tradução
 com overlay, Memória em camadas com filtro de relevância, Privacy Center, Modos do Silva,
-Attention Budget, barge-in, Browser real (Playwright), Plugins e Empacotamento (instalador
-Windows) já feitos acima). O que falta, em ordem:
-
-- **RAG local (documentos/código)**: mencionado como preparação futura na Memória em camadas —
-  precisa de indexação/chunking/busca próprios, deliberadamente deixado fora por enquanto.
+Attention Budget, barge-in, Browser real (Playwright), Plugins, Empacotamento (instalador
+Windows) e RAG local — todos já feitos acima, e todos desligados por padrão. Sem itens pendentes
+no momento; próximos passos ficam a critério de uso real (o que a Silva sentir falta no dia a dia).
